@@ -39,6 +39,33 @@ function makeRequest(path) {
   });
 }
 
+function makePostRequest(path, data) {
+  return new Promise((resolve, reject) => {
+    const postData = JSON.stringify(data);
+    const url = new URL(baseUrl + path);
+    const req = http.request(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(postData)
+      }
+    }, (res) => {
+      let body = '';
+      res.on('data', chunk => { body += chunk; });
+      res.on('end', () => {
+        resolve({
+          statusCode: res.statusCode,
+          headers: res.headers,
+          body: JSON.parse(body)
+        });
+      });
+    });
+    req.on('error', reject);
+    req.write(postData);
+    req.end();
+  });
+}
+
 test('GET /api/health returns status ok', async () => {
   const res = await makeRequest('/api/health');
   assert.strictEqual(res.statusCode, 200);
@@ -73,4 +100,18 @@ test('GET /api/graph/traverse endpoint returns traversal path', async () => {
   const res = await makeRequest('/api/graph/traverse?start=auth-service');
   assert.strictEqual(res.statusCode, 200);
   assert.deepStrictEqual(res.body.path, ['auth-service', 'event-queue', 'worker-service']);
+});
+
+test('POST /api/simulate-break simulates breaking change and returns affected nodes, path, and invariants', async () => {
+  const res = await makePostRequest('/api/simulate-break', {
+    target: 'auth-service',
+    change: 'rename user_id to userId'
+  });
+  assert.strictEqual(res.statusCode, 200);
+  assert.strictEqual(res.body.target, 'auth-service');
+  assert.strictEqual(res.body.change, 'rename user_id to userId');
+  assert.deepStrictEqual(res.body.affectedNodes, ['auth-service', 'event-queue', 'worker-service']);
+  assert.deepStrictEqual(res.body.dependencyPath, ['auth-service', 'event-queue', 'worker-service']);
+  assert.ok(Array.isArray(res.body.relevantInvariants));
+  assert.ok(res.body.relevantInvariants.some(inv => inv.pr === 'PR #51'));
 });

@@ -83,9 +83,27 @@ function traverse(startNodeId) {
   };
 }
 
+function simulateBreak(targetNodeId, changeDescription) {
+  const traversal = traverse(targetNodeId);
+  const affectedNodes = traversal.visitedNodes;
+  const path = traversal.path;
+
+  // Filter historical PR invariants relevant to target or affected nodes
+  const relevantInvariants = prInvariants.filter(inv => affectedNodes.includes(inv.target));
+
+  return {
+    target: targetNodeId,
+    change: changeDescription,
+    affectedNodes,
+    dependencyPath: path,
+    relevantInvariants
+  };
+}
+
 module.exports = {
   getGraph,
   traverse,
+  simulateBreak,
   nodes,
   edges,
   prInvariants

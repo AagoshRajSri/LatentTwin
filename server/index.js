@@ -1,5 +1,5 @@
 const express = require('express');
-const { getGraph, traverse } = require('./graph');
+const { getGraph, traverse, simulateBreak } = require('./graph');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -17,6 +17,12 @@ app.get('/api/graph', (req, res) => {
 app.get('/api/graph/traverse', (req, res) => {
   const startNode = req.query.start || 'auth-service';
   const result = traverse(startNode);
+  res.json(result);
+});
+
+app.post('/api/simulate-break', (req, res) => {
+  const { target = 'auth-service', change = 'rename user_id to userId' } = req.body || {};
+  const result = simulateBreak(target, change);
   res.json(result);
 });
 
