@@ -525,9 +525,9 @@ const nodeTypes = {
         </div>
 
         {/* Action Toolbar / Summary Overlay */}
-        <div className="absolute top-4 left-4 z-20 flex flex-col gap-3 max-w-sm">
+        <div className="absolute top-4 bottom-4 left-4 z-20 flex flex-col gap-3 w-80 max-h-full overflow-y-auto pointer-events-none">
           {/* Inject Breaking Change Control */}
-          <div className="bg-gray-900/95 border border-gray-800 p-4 rounded-xl shadow-2xl backdrop-blur-md">
+          <div className="bg-gray-900/95 border border-gray-800 p-4 rounded-xl shadow-2xl backdrop-blur-md pointer-events-auto">
             <div className="flex items-center justify-between mb-2">
               <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider flex items-center gap-1.5">
                 <Zap size={14} className="text-amber-400" /> Simulator Control
@@ -554,7 +554,7 @@ const nodeTypes = {
 
           {/* Blast Radius Summary Card */}
           {simulationResult && (
-            <div className="bg-red-950/40 border border-red-800/60 p-4 rounded-xl shadow-2xl backdrop-blur-md animate-fade-in flex flex-col gap-3">
+            <div className="bg-red-950/40 border border-red-800/60 p-4 rounded-xl shadow-2xl backdrop-blur-md animate-fade-in flex flex-col gap-3 pointer-events-auto">
               <div className="flex items-center gap-2 border-b border-red-800/40 pb-2">
                 <AlertCircle className="text-red-400 shrink-0" size={18} />
                 <h2 className="text-sm font-bold text-red-200 uppercase tracking-wide">
@@ -621,8 +621,8 @@ const nodeTypes = {
 
         {/* Repair Panel Overlay */}
         {repairPanelOpen && (
-          <div className="absolute top-4 right-[400px] z-20 w-[450px] bg-gray-900 border border-gray-800 rounded-xl shadow-2xl flex flex-col overflow-hidden transition-all animate-fade-in">
-            <div className="flex items-center justify-between p-4 border-b border-gray-800 bg-gray-800/50">
+          <div className="fixed right-0 top-0 bottom-0 z-50 w-[480px] max-w-full bg-gray-900 border-l border-gray-800 shadow-2xl flex flex-col transition-all animate-fade-in">
+            <div className="flex-shrink-0 flex items-center justify-between p-4 border-b border-gray-800 bg-gray-800/50">
               <div className="flex items-center gap-2">
                 <Wrench className="text-blue-400" size={18} />
                 <h2 className="text-sm font-bold text-white tracking-wide">LatentCode Autonomous Patch</h2>
@@ -635,7 +635,7 @@ const nodeTypes = {
               </button>
             </div>
             
-            <div className="p-5 flex-1 overflow-y-auto">
+            <div className="flex-1 min-h-0 overflow-y-auto p-5">
               {loadingRepair ? (
                 <div className="flex flex-col items-center justify-center py-10 gap-3 text-gray-400">
                   <Activity className="animate-spin text-blue-500" size={24} />
@@ -687,16 +687,18 @@ const nodeTypes = {
 
                   <div>
                     <h3 className="text-xs font-semibold text-gray-400 mb-2">Generated Patch</h3>
-                    <pre className="text-[11px] font-mono bg-gray-950 p-3 rounded-lg border border-gray-800 overflow-x-auto">
-                      {repairData.diff.split('\n').map((line, i) => {
-                        let color = 'text-gray-300';
-                        if (line.startsWith('+')) color = 'text-green-400';
-                        else if (line.startsWith('-')) color = 'text-red-400';
-                        else if (line.startsWith('@@')) color = 'text-blue-400';
-                        
-                        return <div key={i} className={color}>{line}</div>;
-                      })}
-                    </pre>
+                    <div className="max-h-[320px] overflow-auto rounded-lg border border-gray-800 bg-gray-950">
+                      <pre className="text-[11px] font-mono p-3 min-w-max">
+                        {repairData.diff.split('\n').map((line, i) => {
+                          let color = 'text-gray-300';
+                          if (line.startsWith('+')) color = 'text-green-400';
+                          else if (line.startsWith('-')) color = 'text-red-400';
+                          else if (line.startsWith('@@')) color = 'text-blue-400';
+                          
+                          return <div key={i} className={color}>{line}</div>;
+                        })}
+                      </pre>
+                    </div>
                   </div>
                   
                   {applyResult && (
@@ -721,7 +723,7 @@ const nodeTypes = {
             </div>
             
             {repairData && !loadingRepair && (
-              <div className="p-4 border-t border-gray-800 bg-gray-800/30 flex justify-end gap-3">
+              <div className="flex-shrink-0 p-4 border-t border-gray-800 bg-gray-800/30 flex justify-end gap-3">
                 <button 
                   onClick={() => setRepairPanelOpen(false)}
                   className="px-4 py-2 text-sm font-medium text-gray-300 hover:text-white transition"
