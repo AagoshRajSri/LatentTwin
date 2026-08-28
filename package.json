@@ -1,0 +1,19 @@
+{
+  "name": "latent-twin",
+  "version": "1.0.0",
+  "description": "Digital twin architectural dependency graph engine for distributed microservice systems",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js",
+    "test": "node --test server/tests/*.test.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "express": "^4.19.2"
+  },
+  "devDependencies": {
+    "supertest": "^7.0.0"
+  }
+}
