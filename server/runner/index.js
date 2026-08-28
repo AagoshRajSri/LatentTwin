@@ -78,11 +78,50 @@ function applyPatch(workspacePath, targetFilePath, patchInfo) {
     return true;
 }
 
-function runValidation(workspacePath) {
+function runValidation(workspacePath, targetFilePath) {
+    let validationCwd = workspacePath;
     let testCommand = 'npm test';
 
+    if (targetFilePath) {
+        let currentDir = path.dirname(path.resolve(workspacePath, targetFilePath));
+        let found = false;
+
+        // Walk upward looking for package.json
+        while (currentDir.length >= workspacePath.length && currentDir.startsWith(workspacePath)) {
+            if (fs.existsSync(path.join(currentDir, 'package.json'))) {
+                validationCwd = currentDir;
+                found = true;
+                break;
+            }
+            if (currentDir === workspacePath) break;
+            currentDir = path.dirname(currentDir);
+        }
+
+        // If not found by walking up, check top-level module directory
+        if (!found) {
+            const relativeTarget = path.relative(workspacePath, path.resolve(workspacePath, targetFilePath));
+            const parts = relativeTarget.split(path.sep);
+            if (parts.length > 1) {
+                const moduleDir = path.join(workspacePath, parts[0]);
+                if (fs.existsSync(path.join(moduleDir, 'package.json'))) {
+                    validationCwd = moduleDir;
+                    found = true;
+                }
+            }
+        }
+        
+        if (!found && !fs.existsSync(path.join(workspacePath, 'package.json'))) {
+             return {
+                success: false,
+                error: 'Could not find a package.json to run tests',
+                stderr: 'No usable package.json could be found along the target file path or at the workspace root.',
+                exitCode: -1
+             };
+        }
+    }
+
     // Try to determine test command from package.json if it exists
-    const packageJsonPath = path.join(workspacePath, 'package.json');
+    const packageJsonPath = path.join(validationCwd, 'package.json');
     if (fs.existsSync(packageJsonPath)) {
         try {
             const pkg = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
@@ -95,32 +134,36 @@ function runValidation(workspacePath) {
     }
 
     try {
-        // Run npm install first to ensure dependencies are present in temp dir if needed
-        // For the demo system, it might just be vanilla js, but safe to try install if package.json exists
-        if (fs.existsSync(packageJsonPath)) {
-            execSync('npm install --production=false', { cwd: workspacePath, stdio: 'ignore', timeout: 30000 });
-        }
-
-        const output = execSync(testCommand, { 
-            cwd: workspacePath, 
-            timeout: 10000, // 10s timeout
-            encoding: 'utf8' 
-        });
-
-        return {
-            success: true,
-            stdout: output,
-            stderr: '',
-            exitCode: 0
-        };
-    } catch (error) {
-        return {
-            success: false,
-            stdout: error.stdout ? error.stdout.toString() : '',
-            stderr: error.stderr ? error.stderr.toString() : error.message,
-            exitCode: error.status || 1
-        };
+    // Run npm install first to ensure dependencies are present in temp dir if needed
+    // For the demo system, it might just be vanilla js, but safe to try install if package.json exists
+    if (fs.existsSync(packageJsonPath)) {
+        execSync('npm install --production=false', { cwd: validationCwd, stdio: 'ignore', timeout: 30000 });
     }
+
+    const output = execSync(testCommand, { 
+        cwd: validationCwd, 
+        timeout: 10000, // 10s timeout
+        encoding: 'utf8' 
+    });
+
+    return {
+        success: true,
+        commandRan: testCommand,
+        cwd: path.relative(workspacePath, validationCwd),
+        stdout: output,
+        stderr: '',
+        exitCode: 0
+    };
+} catch (error) {
+    return {
+        success: false,
+        commandRan: testCommand,
+        cwd: path.relative(workspacePath, validationCwd),
+        stdout: error.stdout ? error.stdout.toString() : '',
+        stderr: error.stderr ? error.stderr.toString() : error.message,
+        exitCode: error.status || 1
+    };
+}
 }
 
 module.exports = {

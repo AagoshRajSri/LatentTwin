@@ -75,7 +75,7 @@ describe('Runner Module', () => {
             }
         }));
 
-        const result = runValidation(workspacePath);
+        const result = runValidation(workspacePath, targetFilePath);
         assert.strictEqual(result.success, true);
         assert.ok(result.stdout.includes('Success'));
         assert.strictEqual(result.exitCode, 0);
@@ -89,9 +89,48 @@ describe('Runner Module', () => {
             }
         }));
 
-        const result = runValidation(workspacePath);
+        const result = runValidation(workspacePath, 'worker-service/index.js');
         assert.strictEqual(result.success, false);
         assert.strictEqual(result.exitCode, 1);
+    });
+
+    test('package.json in service dir', () => {
+        workspacePath = createIsolatedWorkspace(demoRepoPath);
+        // Remove root package.json if it was added
+        if (fs.existsSync(path.join(workspacePath, 'package.json'))) {
+             fs.unlinkSync(path.join(workspacePath, 'package.json'));
+        }
+        
+        // Add one inside worker-service
+        fs.writeFileSync(path.join(workspacePath, 'worker-service', 'package.json'), JSON.stringify({
+            scripts: {
+                test: "echo 'Service Success'"
+            }
+        }));
+
+        const result = runValidation(workspacePath, 'worker-service/index.js');
+        assert.strictEqual(result.success, true);
+        assert.ok(result.stdout.includes('Service Success'));
+        assert.strictEqual(result.cwd, 'worker-service');
+        assert.strictEqual(result.exitCode, 0);
+    });
+
+    test('package.json resolved correctly for deep target path', () => {
+         workspacePath = createIsolatedWorkspace(demoRepoPath);
+         
+         fs.mkdirSync(path.join(workspacePath, 'deep', 'nested', 'module'), { recursive: true });
+         
+         fs.writeFileSync(path.join(workspacePath, 'deep', 'nested', 'package.json'), JSON.stringify({
+            scripts: {
+                test: "echo 'Nested Success'"
+            }
+         }));
+         
+         const result = runValidation(workspacePath, 'deep/nested/module/index.js');
+         assert.strictEqual(result.success, true);
+         assert.strictEqual(result.cwd, 'deep/nested');
+         assert.ok(result.stdout.includes('Nested Success'));
+         assert.strictEqual(result.exitCode, 0);
     });
 
     test('invalid target paths being rejected safely', () => {

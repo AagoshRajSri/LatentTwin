@@ -82,7 +82,7 @@ app.post('/api/apply-patch', (req, res) => {
     applyPatch(workspacePath, targetFilePath, repairInfo);
 
     // Validate
-    const validationResult = runValidation(workspacePath);
+    const validationResult = runValidation(workspacePath, targetFilePath);
 
     if (validationResult.success) {
       res.json({
