@@ -1,6 +1,7 @@
 const express = require('express');
 const { getGraph, traverse, simulateBreak } = require('./graph');
 const { generateRepair } = require('./repair');
+const { simulateBreakWithContext } = require('./simulate');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -22,15 +23,28 @@ app.get('/api/graph/traverse', (req, res) => {
 });
 
 app.post('/api/simulate-break', (req, res) => {
-  const { target = 'auth-service', change = 'rename user_id to userId' } = req.body || {};
-  const result = simulateBreak(target, change);
-  res.json(result);
+  if (req.body && req.body.property && req.body.newProperty) {
+    // Advanced break simulation for the new requirements
+    const result = simulateBreakWithContext(req.body);
+    res.json(result);
+  } else {
+    // Fallback to older behavior
+    const { target = 'auth-service', change = 'rename user_id to userId' } = req.body || {};
+    const result = simulateBreak(target, change);
+    res.json(result);
+  }
 });
 
 app.post('/api/repair', (req, res) => {
-  const { target = 'auth-service', change = 'rename user_id to userId' } = req.body || {};
-  const result = generateRepair(target, change);
-  res.json(result);
+  if (req.body && req.body.property && req.body.newProperty) {
+    const changeDesc = `rename ${req.body.property} to ${req.body.newProperty}`;
+    const result = generateRepair(req.body.target || 'auth-service', changeDesc);
+    res.json(result);
+  } else {
+    const { target = 'auth-service', change = 'rename user_id to userId' } = req.body || {};
+    const result = generateRepair(target, change);
+    res.json(result);
+  }
 });
 
 if (require.main === module) {

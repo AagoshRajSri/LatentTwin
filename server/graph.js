@@ -1,3 +1,6 @@
+const { GraphBuilder } = require('./scanner/graphBuilder');
+const config = require('./config');
+
 const nodes = [
   {
     id: "auth-service",
@@ -53,6 +56,12 @@ const prInvariants = [
 ];
 
 function getGraph() {
+  if (config.isValidRepo()) {
+    const builder = new GraphBuilder(config.getRepoPath());
+    const dynamicGraph = builder.build();
+    if (dynamicGraph) return dynamicGraph;
+  }
+  
   return {
     nodes,
     edges,
@@ -61,6 +70,7 @@ function getGraph() {
 }
 
 function traverse(startNodeId) {
+  const graph = getGraph();
   const visited = new Set();
   const path = [];
 
@@ -69,7 +79,7 @@ function traverse(startNodeId) {
     visited.add(currentId);
     path.push(currentId);
 
-    const outgoingEdges = edges.filter(e => e.source === currentId);
+    const outgoingEdges = graph.edges.filter(e => e.source === currentId);
     for (const edge of outgoingEdges) {
       dfs(edge.target);
     }
@@ -84,12 +94,13 @@ function traverse(startNodeId) {
 }
 
 function simulateBreak(targetNodeId, changeDescription) {
+  const graph = getGraph();
   const traversal = traverse(targetNodeId);
   const affectedNodes = traversal.visitedNodes;
   const path = traversal.path;
 
   // Filter historical PR invariants relevant to target or affected nodes
-  const relevantInvariants = prInvariants.filter(inv => affectedNodes.includes(inv.target));
+  const relevantInvariants = graph.prInvariants.filter(inv => affectedNodes.includes(inv.target));
 
   return {
     target: targetNodeId,
