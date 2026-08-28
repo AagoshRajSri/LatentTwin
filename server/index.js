@@ -2,6 +2,8 @@ const express = require('express');
 const { getGraph, traverse, simulateBreak } = require('./graph');
 const { generateRepair } = require('./repair');
 const { simulateBreakWithContext } = require('./simulate');
+const { createIsolatedWorkspace, cleanupIsolatedWorkspace, applyPatch, runValidation } = require('./runner');
+const config = require('./config');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -44,6 +46,66 @@ app.post('/api/repair', (req, res) => {
     const { target = 'auth-service', change = 'rename user_id to userId' } = req.body || {};
     const result = generateRepair(target, change);
     res.json(result);
+  }
+});
+
+app.post('/api/apply-patch', (req, res) => {
+  const { repairInfo } = req.body;
+  if (!repairInfo || !repairInfo.targetFilePath) {
+    return res.status(400).json({ error: 'Missing repair information or target file path' });
+  }
+
+  const repoPath = config.isValidRepo() ? config.getRepoPath() : require('path').join(__dirname, '..', 'demo-system');
+  let workspacePath;
+
+  try {
+    workspacePath = createIsolatedWorkspace(repoPath);
+    
+    // Apply patch
+    // If it's the fallback static demo repair, the targetFilePath is not provided in generateRepair,
+    // we need to set it for the static demo to work.
+    let targetFilePath = repairInfo.targetFilePath;
+    if (!targetFilePath && repairInfo.diff && repairInfo.diff.includes('demo-system/worker-service/index.js')) {
+        targetFilePath = 'worker-service/index.js'; // relative to repoPath
+    } else if (targetFilePath) {
+        // if targetFilePath includes repo name e.g. demo-system/worker-service/index.js, trim it
+        const repoName = require('path').basename(repoPath);
+        if (targetFilePath.startsWith(repoName + '/')) {
+            targetFilePath = targetFilePath.substring(repoName.length + 1);
+        }
+    }
+
+    if (!targetFilePath) {
+        throw new Error("Could not determine target file path for patch.");
+    }
+
+    applyPatch(workspacePath, targetFilePath, repairInfo);
+
+    // Validate
+    const validationResult = runValidation(workspacePath);
+
+    if (validationResult.success) {
+      res.json({
+        status: 'SYSTEM HEALED',
+        message: 'Repair applied and validated successfully.',
+        validationResult
+      });
+    } else {
+      res.json({
+        status: 'REPAIR FAILED',
+        message: 'Validation failed after applying patch.',
+        validationResult
+      });
+    }
+  } catch (error) {
+    res.status(500).json({
+      status: 'REPAIR FAILED',
+      message: error.message
+    });
+  } finally {
+    if (workspacePath) {
+      cleanupIsolatedWorkspace(workspacePath);
+    }
   }
 });
 

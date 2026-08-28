@@ -109,6 +109,8 @@ const nodeTypes = {
     const [repairData, setRepairData] = useState(null);
     const [loadingRepair, setLoadingRepair] = useState(false);
     const [repairPanelOpen, setRepairPanelOpen] = useState(false);
+    const [applyingPatch, setApplyingPatch] = useState(false);
+    const [applyResult, setApplyResult] = useState(null);
     
     const { fitView } = useReactFlow();
 
@@ -310,9 +312,42 @@ const nodeTypes = {
       }, 100);
     };
 
+  const handleReset = () => {
+    setSimulationResult(null);
+    setRepairData(null);
+    setRepairPanelOpen(false);
+    setApplyResult(null);
+    setSelectedNode(null);
+    
+    // Reset visual state of nodes and edges
+    setNodes(nodes => nodes.map(n => ({
+      ...n,
+      style: {
+        ...n.style,
+        opacity: 1,
+        boxShadow: n.data.type === 'service' 
+          ? '0 4px 6px -1px rgba(59, 130, 246, 0.1), 0 2px 4px -1px rgba(59, 130, 246, 0.06)' 
+          : '0 4px 6px -1px rgba(168, 85, 247, 0.1), 0 2px 4px -1px rgba(168, 85, 247, 0.06)'
+      },
+      data: {
+        ...n.data,
+        isBroken: false,
+        isAffected: false
+      }
+    })));
+
+    setEdges(edges => edges.map(e => ({
+      ...e,
+      style: { ...e.style, stroke: '#4b5563', strokeWidth: 1, opacity: 1 },
+      animated: true,
+      className: ''
+    })));
+  };
+
   const handleGenerateRepair = async () => {
     setLoadingRepair(true);
     setRepairPanelOpen(true);
+    setApplyResult(null); // Reset any previous apply results
     try {
       const response = await fetch('/api/repair', {
         method: 'POST',
@@ -332,9 +367,29 @@ const nodeTypes = {
     }
   };
 
-  const onNodeClick = useCallback((event, node) => {
-    setSelectedNode(node);
-  }, []);
+  const handleApplyPatch = async () => {
+    setApplyingPatch(true);
+    setApplyResult(null);
+    try {
+      const response = await fetch('/api/apply-patch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          repairInfo: repairData
+        })
+      });
+      const data = await response.json();
+      setApplyResult(data);
+    } catch (err) {
+      console.error('Error applying patch:', err);
+      setApplyResult({
+        status: 'REPAIR FAILED',
+        message: 'Network error or server crash while applying patch.'
+      });
+    } finally {
+      setApplyingPatch(false);
+    }
+  };
 
   const onPaneClick = useCallback(() => {
     setSelectedNode(null);
@@ -639,6 +694,24 @@ const nodeTypes = {
                       })}
                     </pre>
                   </div>
+                  
+                  {applyResult && (
+                    <div className={`mt-2 p-3 rounded-lg border ${applyResult.status === 'SYSTEM HEALED' ? 'bg-green-900/20 border-green-800/50' : 'bg-red-900/20 border-red-800/50'}`}>
+                      <h3 className={`text-sm font-bold mb-1 ${applyResult.status === 'SYSTEM HEALED' ? 'text-green-400' : 'text-red-400'}`}>
+                        {applyResult.status}
+                      </h3>
+                      <p className="text-xs text-gray-300 mb-2">{applyResult.message}</p>
+                      
+                      {applyResult.validationResult && (
+                        <div className="mt-2">
+                          <h4 className="text-[10px] uppercase font-bold text-gray-500 mb-1">Test Summary</h4>
+                          <pre className="text-[10px] font-mono bg-gray-950 p-2 rounded border border-gray-800 overflow-x-auto max-h-32 text-gray-400">
+                            {applyResult.validationResult.stdout || applyResult.validationResult.stderr || 'No output'}
+                          </pre>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               ) : null}
             </div>
@@ -652,9 +725,22 @@ const nodeTypes = {
                   Dismiss
                 </button>
                 <button 
-                  className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium rounded-md transition shadow-md"
+                  onClick={handleApplyPatch}
+                  disabled={applyingPatch || (applyResult && applyResult.status === 'SYSTEM HEALED')}
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium rounded-md transition shadow-md disabled:opacity-50 flex items-center gap-2"
                 >
-                  Apply Patch (Demo)
+                  {applyingPatch ? (
+                    <>
+                      <Activity className="animate-spin" size={14} />
+                      Applying & Running Tests...
+                    </>
+                  ) : applyResult && applyResult.status === 'REPAIR FAILED' ? (
+                    'Retry Patch'
+                  ) : applyResult && applyResult.status === 'SYSTEM HEALED' ? (
+                    'Applied'
+                  ) : (
+                    'Apply Patch & Validate'
+                  )}
                 </button>
               </div>
             )}
