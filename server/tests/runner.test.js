@@ -71,11 +71,11 @@ describe('Runner Module', () => {
         // Let's create a dummy package.json at the workspace root to test validation.
         fs.writeFileSync(path.join(workspacePath, 'package.json'), JSON.stringify({
             scripts: {
-                test: "echo 'Success'"
+                test: "node -e \"console.log('Success')\""
             }
         }));
 
-        const result = runValidation(workspacePath, targetFilePath);
+        const result = runValidation(workspacePath, 'package.json');
         assert.strictEqual(result.success, true);
         assert.ok(result.stdout.includes('Success'));
         assert.strictEqual(result.exitCode, 0);
@@ -85,11 +85,11 @@ describe('Runner Module', () => {
         workspacePath = createIsolatedWorkspace(demoRepoPath);
         fs.writeFileSync(path.join(workspacePath, 'package.json'), JSON.stringify({
             scripts: {
-                test: "exit 1"
+                test: "node -e \"process.exit(1)\""
             }
         }));
 
-        const result = runValidation(workspacePath, 'worker-service/index.js');
+        const result = runValidation(workspacePath, 'package.json');
         assert.strictEqual(result.success, false);
         assert.strictEqual(result.exitCode, 1);
     });
@@ -104,7 +104,7 @@ describe('Runner Module', () => {
         // Add one inside worker-service
         fs.writeFileSync(path.join(workspacePath, 'worker-service', 'package.json'), JSON.stringify({
             scripts: {
-                test: "echo 'Service Success'"
+                test: "node -e \"console.log('Service Success')\""
             }
         }));
 
@@ -122,7 +122,7 @@ describe('Runner Module', () => {
          
          fs.writeFileSync(path.join(workspacePath, 'deep', 'nested', 'package.json'), JSON.stringify({
             scripts: {
-                test: "echo 'Nested Success'"
+                test: "node -e \"console.log('Nested Success')\""
             }
          }));
          

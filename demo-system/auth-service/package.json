@@ -1,0 +1,8 @@
+{
+  "name": "auth-service",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "test": "node -e \"require('./index.js').createUserEvent(); console.log('Auth service test passed');\""
+  }
+}

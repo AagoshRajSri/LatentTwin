@@ -3,9 +3,9 @@ const fs = require('fs');
 
 class Config {
   constructor() {
-    this.repoPath = process.env.REPO_PATH || './demo-system';
+    this.repoPath = process.env.REPO_PATH || path.resolve(__dirname, '../demo-system');
     
-    // Resolve relative paths from project root
+    // Resolve relative paths from project root if passed in via env
     if (this.repoPath.startsWith('./') || this.repoPath.startsWith('../')) {
       this.repoPath = path.resolve(process.cwd(), this.repoPath);
     }

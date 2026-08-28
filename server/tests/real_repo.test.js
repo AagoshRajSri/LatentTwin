@@ -68,3 +68,34 @@ test('Configuration falls back gracefully to static graph if REPO_PATH is invali
   // Restore for other tests
   config.repoPath = originalRepoPath;
 });
+
+test('Default repo path resolves to demo-system when run from server dir', () => {
+  // Save current working directory
+  const originalCwd = process.cwd();
+  
+  try {
+    // Change working directory to server
+    process.chdir(__dirname + '/..');
+    
+    // Clear require cache for config to reload it
+    delete require.cache[require.resolve('../config')];
+    
+    // Temporarily unset REPO_PATH if set
+    const originalEnvRepoPath = process.env.REPO_PATH;
+    delete process.env.REPO_PATH;
+    
+    const newConfig = require('../config');
+    
+    // It should end with demo-system, not server/demo-system
+    const demoSystemPath = path.resolve(__dirname, '../../demo-system');
+    assert.strictEqual(newConfig.getRepoPath(), demoSystemPath);
+    
+    // Restore env
+    if (originalEnvRepoPath) {
+      process.env.REPO_PATH = originalEnvRepoPath;
+    }
+  } finally {
+    // Restore working directory
+    process.chdir(originalCwd);
+  }
+});

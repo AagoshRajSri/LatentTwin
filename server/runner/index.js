@@ -127,23 +127,37 @@ function runValidation(workspacePath, targetFilePath) {
             const pkg = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
             if (pkg.scripts && pkg.scripts.test) {
                 // We'll use npm test as standard
+            } else {
+                testCommand = 'echo "No test script"';
             }
         } catch (e) {
             // Ignore parse errors, fallback to npm test
         }
+    } else {
+       return {
+            success: false,
+            error: 'Could not find a package.json to run tests',
+            stderr: 'No usable package.json could be found along the target file path or at the workspace root.',
+            exitCode: -1
+       };
     }
 
     try {
     // Run npm install first to ensure dependencies are present in temp dir if needed
     // For the demo system, it might just be vanilla js, but safe to try install if package.json exists
     if (fs.existsSync(packageJsonPath)) {
-        execSync('npm install --production=false', { cwd: validationCwd, stdio: 'ignore', timeout: 30000 });
+        try {
+            execSync('npm install --production=false', { cwd: validationCwd, stdio: 'ignore', timeout: 30000 });
+        } catch (e) {
+            // Ignore npm install errors, maybe no lockfile or no network, we'll try running tests anyway
+        }
     }
 
     const output = execSync(testCommand, { 
         cwd: validationCwd, 
         timeout: 10000, // 10s timeout
-        encoding: 'utf8' 
+        encoding: 'utf8',
+        stdio: 'pipe'
     });
 
     return {

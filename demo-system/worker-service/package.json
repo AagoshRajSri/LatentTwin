@@ -1,0 +1,8 @@
+{
+  "name": "worker-service",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "test": "node -e \"require('./index.js').consumeEvents(); console.log('Worker service test passed');\""
+  }
+}

@@ -9,12 +9,14 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
     addEdge,
     MarkerType,
     useReactFlow,
-    ReactFlowProvider
+    ReactFlowProvider,
+    Handle,
+    Position
   } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { Activity, Database, Server, Box, GitMerge, AlertCircle, Info, Zap, AlertTriangle, RefreshCw, Wrench } from 'lucide-react';
 
-const CustomServiceNode = ({ data, selected }) => {
+const CustomServiceNode = ({ data, selected, id }) => {
   const isImpacted = data.isImpacted;
   const isTarget = data.isTarget;
 
@@ -33,26 +35,40 @@ const CustomServiceNode = ({ data, selected }) => {
   }
 
   return (
-    <div className={`px-4 py-3 shadow-md rounded-md ${bgColor} border-2 ${borderColor} text-white flex items-center gap-3 min-w-[150px] transition-all`}>
-      <div className={`p-2 rounded-md ${badgeColor}`}>
-        <Server size={18} />
+    <>
+      <Handle 
+        type="target" 
+        position={Position.Left} 
+        id="target" 
+        className="w-2 h-2 !bg-gray-500 border-none opacity-0" 
+      />
+      <div className={`px-4 py-3 shadow-md rounded-md ${bgColor} border-2 ${borderColor} text-white flex items-center gap-3 min-w-[150px] transition-all`}>
+        <div className={`p-2 rounded-md ${badgeColor}`}>
+          <Server size={18} />
+        </div>
+        <div className="flex flex-col">
+          <span className="font-bold text-sm flex items-center gap-1.5">
+            {data.label}
+            {isImpacted && !isTarget && (
+              <span className="flex h-2 w-2 rounded-full bg-red-500 animate-ping" />
+            )}
+          </span>
+          <span className="text-xs text-gray-400">
+            {isTarget ? 'Target Service' : isImpacted ? 'Impacted Service' : 'Service'}
+          </span>
+        </div>
       </div>
-      <div className="flex flex-col">
-        <span className="font-bold text-sm flex items-center gap-1.5">
-          {data.label}
-          {isImpacted && !isTarget && (
-            <span className="flex h-2 w-2 rounded-full bg-red-500 animate-ping" />
-          )}
-        </span>
-        <span className="text-xs text-gray-400">
-          {isTarget ? 'Target Service' : isImpacted ? 'Impacted Service' : 'Service'}
-        </span>
-      </div>
-    </div>
+      <Handle 
+        type="source" 
+        position={Position.Right} 
+        id="source" 
+        className="w-2 h-2 !bg-gray-500 border-none opacity-0" 
+      />
+    </>
   );
 };
 
-const CustomInfraNode = ({ data, selected }) => {
+const CustomInfraNode = ({ data, selected, id }) => {
   const isImpacted = data.isImpacted;
   const isTarget = data.isTarget;
 
@@ -71,22 +87,36 @@ const CustomInfraNode = ({ data, selected }) => {
   }
 
   return (
-    <div className={`px-4 py-3 shadow-md rounded-md ${bgColor} border-2 ${borderColor} text-white flex items-center gap-3 min-w-[150px] transition-all`}>
-      <div className={`p-2 rounded-md ${badgeColor}`}>
-        <Database size={18} />
+    <>
+      <Handle 
+        type="target" 
+        position={Position.Left} 
+        id="target" 
+        className="w-2 h-2 !bg-purple-500 border-none opacity-0" 
+      />
+      <div className={`px-4 py-3 shadow-md rounded-md ${bgColor} border-2 ${borderColor} text-white flex items-center gap-3 min-w-[150px] transition-all`}>
+        <div className={`p-2 rounded-md ${badgeColor}`}>
+          <Database size={18} />
+        </div>
+        <div className="flex flex-col">
+          <span className="font-bold text-sm flex items-center gap-1.5">
+            {data.label}
+            {isImpacted && !isTarget && (
+              <span className="flex h-2 w-2 rounded-full bg-red-500 animate-ping" />
+            )}
+          </span>
+          <span className="text-xs text-gray-400">
+            {isTarget ? 'Target Queue' : isImpacted ? 'Impacted Queue' : 'Infrastructure'}
+          </span>
+        </div>
       </div>
-      <div className="flex flex-col">
-        <span className="font-bold text-sm flex items-center gap-1.5">
-          {data.label}
-          {isImpacted && !isTarget && (
-            <span className="flex h-2 w-2 rounded-full bg-red-500 animate-ping" />
-          )}
-        </span>
-        <span className="text-xs text-gray-400">
-          {isTarget ? 'Target Queue' : isImpacted ? 'Impacted Queue' : 'Infrastructure'}
-        </span>
-      </div>
-    </div>
+      <Handle 
+        type="source" 
+        position={Position.Right} 
+        id="source" 
+        className="w-2 h-2 !bg-purple-500 border-none opacity-0" 
+      />
+    </>
   );
 };
 
@@ -152,11 +182,13 @@ const nodeTypes = {
         });
 
         const rfEdges = data.edges.map(edge => {
-          const isImplicit = edge.type === 'implicit' || edge.type === 'subscribes';
+          const isImplicit = edge.relationshipType === 'implicit_queue' || edge.relationshipType === 'implicit_db' || edge.type === 'implicit' || edge.type === 'subscribes';
           return {
             id: `${edge.source}-${edge.target}`,
             source: edge.source,
             target: edge.target,
+            sourceHandle: 'source',
+            targetHandle: 'target',
             type: 'smoothstep',
             animated: isImplicit,
             style: {
@@ -168,7 +200,7 @@ const nodeTypes = {
               type: MarkerType.ArrowClosed,
               color: isImplicit ? '#f59e0b' : '#94a3b8',
             },
-            data: { type: edge.type }
+            data: { type: edge.type, relationshipType: edge.relationshipType }
           };
         });
 
@@ -284,11 +316,13 @@ const nodeTypes = {
       );
   
       setEdges(graphData.edges.map(edge => {
-        const isImplicit = edge.type === 'implicit' || edge.type === 'subscribes';
+        const isImplicit = edge.relationshipType === 'implicit_queue' || edge.relationshipType === 'implicit_db' || edge.type === 'implicit' || edge.type === 'subscribes';
         return {
           id: `${edge.source}-${edge.target}`,
           source: edge.source,
           target: edge.target,
+          sourceHandle: 'source',
+          targetHandle: 'target',
           type: 'smoothstep',
           animated: isImplicit,
           style: {
@@ -300,7 +334,7 @@ const nodeTypes = {
             type: MarkerType.ArrowClosed,
             color: isImplicit ? '#f59e0b' : '#94a3b8',
           },
-          data: { type: edge.type }
+          data: { type: edge.type, relationshipType: edge.relationshipType }
         };
       }));
       

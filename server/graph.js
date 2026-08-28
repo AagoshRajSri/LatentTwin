@@ -24,15 +24,19 @@ const nodes = [
 
 const edges = [
   {
+    id: "auth-service-event-queue",
     source: "auth-service",
     target: "event-queue",
     type: "publishes",
+    relationshipType: "explicit",
     description: "Publishes user events to event queue."
   },
   {
+    id: "event-queue-worker-service",
     source: "event-queue",
     target: "worker-service",
     type: "subscribes",
+    relationshipType: "implicit_queue",
     description: "Consumes user events from event queue (implicit runtime dependency from auth-service to worker-service)."
   }
 ];
