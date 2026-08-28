@@ -1,4 +1,5 @@
 const express = require('express');
+const cors = require('cors');
 const { getGraph, traverse, simulateBreak } = require('./graph');
 const { generateRepair } = require('./repair');
 const { simulateBreakWithContext } = require('./simulate');
@@ -7,6 +8,26 @@ const config = require('./config');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
+
+// Configure CORS
+const allowedOrigins = [
+  'http://localhost:3000',
+  'http://localhost:5173',
+  'https://latent-twin.vercel.app'
+];
+if (process.env.FRONTEND_URL) {
+  allowedOrigins.push(process.env.FRONTEND_URL);
+}
+
+app.use(cors({
+  origin: function (origin, callback) {
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  }
+}));
 
 app.use(express.json());
 
