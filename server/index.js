@@ -1,5 +1,6 @@
 const express = require('express');
 const { getGraph, traverse, simulateBreak } = require('./graph');
+const { generateRepair } = require('./repair');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -23,6 +24,12 @@ app.get('/api/graph/traverse', (req, res) => {
 app.post('/api/simulate-break', (req, res) => {
   const { target = 'auth-service', change = 'rename user_id to userId' } = req.body || {};
   const result = simulateBreak(target, change);
+  res.json(result);
+});
+
+app.post('/api/repair', (req, res) => {
+  const { target = 'auth-service', change = 'rename user_id to userId' } = req.body || {};
+  const result = generateRepair(target, change);
   res.json(result);
 });
 
