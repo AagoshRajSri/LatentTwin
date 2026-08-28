@@ -16,6 +16,16 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import '@xyflow/react/dist/style.css';
 import { Activity, Database, Server, Box, GitMerge, AlertCircle, Info, Zap, AlertTriangle, RefreshCw, Wrench } from 'lucide-react';
 
+const getApiUrl = (endpoint) => {
+  const baseUrl = import.meta.env.VITE_API_URL || '';
+  if (!baseUrl) {
+    return endpoint;
+  }
+  const cleanBase = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
+  const cleanEndpoint = endpoint.startsWith('/') ? endpoint.slice(1) : endpoint;
+  return `${cleanBase}/${cleanEndpoint}`;
+};
+
 const CustomServiceNode = ({ data, selected, id }) => {
   const isImpacted = data.isImpacted;
   const isTarget = data.isTarget;
@@ -147,7 +157,7 @@ const nodeTypes = {
   useEffect(() => {
     const fetchGraph = async () => {
       try {
-        const response = await fetch('/api/graph');
+        const response = await fetch(getApiUrl('/api/graph'));
         if (!response.ok) throw new Error('Failed to fetch');
         const data = await response.json();
         setGraphData(data);
@@ -223,7 +233,7 @@ const nodeTypes = {
     setRepairPanelOpen(false);
     setRepairData(null);
     try {
-      const response = await fetch('/api/simulate-break', {
+      const response = await fetch(getApiUrl('/api/simulate-break'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -383,7 +393,7 @@ const nodeTypes = {
     setRepairPanelOpen(true);
     setApplyResult(null); // Reset any previous apply results
     try {
-      const response = await fetch('/api/repair', {
+      const response = await fetch(getApiUrl('/api/repair'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -405,7 +415,7 @@ const nodeTypes = {
     setApplyingPatch(true);
     setApplyResult(null);
     try {
-      const response = await fetch('/api/apply-patch', {
+      const response = await fetch(getApiUrl('/api/apply-patch'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
