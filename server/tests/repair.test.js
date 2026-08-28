@@ -16,7 +16,7 @@ test('POST /api/repair generates repair information for user_id to userId rename
   assert.strictEqual(response.body.affectedService, 'Worker Service');
   assert.ok(response.body.dependencyPath.includes('auth-service'));
   assert.ok(response.body.dependencyPath.includes('worker-service'));
-  assert.strictEqual(response.body.historicalInvariants.length, 2);
+  assert.strictEqual(response.body.historicalInvariants.length, 3);
   assert.ok(response.body.diff.includes('-      const userId = payload.user_id;'));
   assert.ok(response.body.diff.includes('+      const userId = payload.userId;'));
   assert.ok(response.body.diff.includes('const schemaVersion = payload.schema_version;'));

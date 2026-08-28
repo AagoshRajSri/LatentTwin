@@ -318,8 +318,8 @@ const nodeTypes = {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          target: 'auth-service',
-          change: 'rename user_id to userId'
+          target: simulationResult.target,
+          change: simulationResult.change
         })
       });
       if (!response.ok) throw new Error('Repair generation failed');
