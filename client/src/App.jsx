@@ -1,14 +1,16 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import {
-  ReactFlow,
-  MiniMap,
-  Controls,
-  Background,
-  useNodesState,
-  useEdgesState,
-  addEdge,
-  MarkerType
-} from '@xyflow/react';
+  import {
+    ReactFlow,
+    MiniMap,
+    Controls,
+    Background,
+    useNodesState,
+    useEdgesState,
+    addEdge,
+    MarkerType,
+    useReactFlow,
+    ReactFlowProvider
+  } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { Activity, Database, Server, Box, GitMerge, AlertCircle, Info, Zap, AlertTriangle, RefreshCw, Wrench } from 'lucide-react';
 
@@ -94,19 +96,21 @@ const nodeTypes = {
   queue: CustomInfraNode,
 };
 
-export default function App() {
-  const [nodes, setNodes, onNodesChange] = useNodesState([]);
-  const [edges, setEdges, onEdgesChange] = useEdgesState([]);
-  const [selectedNode, setSelectedNode] = useState(null);
-  const [graphData, setGraphData] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [backendStatus, setBackendStatus] = useState('connecting');
-
-  const [simulationResult, setSimulationResult] = useState(null);
-  const [simulating, setSimulating] = useState(false);
-  const [repairData, setRepairData] = useState(null);
-  const [loadingRepair, setLoadingRepair] = useState(false);
-  const [repairPanelOpen, setRepairPanelOpen] = useState(false);
+  function FlowContent() {
+    const [nodes, setNodes, onNodesChange] = useNodesState([]);
+    const [edges, setEdges, onEdgesChange] = useEdgesState([]);
+    const [selectedNode, setSelectedNode] = useState(null);
+    const [graphData, setGraphData] = useState(null);
+    const [loading, setLoading] = useState(true);
+    const [backendStatus, setBackendStatus] = useState('connecting');
+  
+    const [simulationResult, setSimulationResult] = useState(null);
+    const [simulating, setSimulating] = useState(false);
+    const [repairData, setRepairData] = useState(null);
+    const [loadingRepair, setLoadingRepair] = useState(false);
+    const [repairPanelOpen, setRepairPanelOpen] = useState(false);
+    
+    const { fitView } = useReactFlow();
 
   useEffect(() => {
     const fetchGraph = async () => {
@@ -118,9 +122,19 @@ export default function App() {
         
         // Transform backend data to React Flow format
         const rfNodes = data.nodes.map((node, index) => {
-          const cols = 3;
-          const x = (index % cols) * 250 + 100;
-          const y = Math.floor(index / cols) * 150 + 100;
+          // Layout: auth -> queue -> worker in a horizontal line
+          let x, y;
+          if (node.id === 'auth-service') {
+            x = 100; y = 200;
+          } else if (node.id === 'event-queue') {
+            x = 400; y = 200;
+          } else if (node.id === 'worker-service') {
+            x = 700; y = 200;
+          } else {
+            const cols = 3;
+            x = (index % cols) * 250 + 100;
+            y = Math.floor(index / cols) * 150 + 100;
+          }
           
           return {
             id: node.id,
@@ -135,23 +149,26 @@ export default function App() {
           };
         });
 
-        const rfEdges = data.edges.map(edge => ({
-          id: `${edge.source}-${edge.target}`,
-          source: edge.source,
-          target: edge.target,
-          type: 'smoothstep',
-          animated: edge.type === 'implicit',
-          style: {
-            stroke: edge.type === 'implicit' ? '#f59e0b' : '#94a3b8',
-            strokeWidth: edge.type === 'implicit' ? 2 : 1.5,
-            strokeDasharray: edge.type === 'implicit' ? '5,5' : 'none',
-          },
-          markerEnd: {
-            type: MarkerType.ArrowClosed,
-            color: edge.type === 'implicit' ? '#f59e0b' : '#94a3b8',
-          },
-          data: { type: edge.type }
-        }));
+        const rfEdges = data.edges.map(edge => {
+          const isImplicit = edge.type === 'implicit' || edge.type === 'subscribes';
+          return {
+            id: `${edge.source}-${edge.target}`,
+            source: edge.source,
+            target: edge.target,
+            type: 'smoothstep',
+            animated: isImplicit,
+            style: {
+              stroke: isImplicit ? '#f59e0b' : '#94a3b8',
+              strokeWidth: isImplicit ? 2 : 1.5,
+              strokeDasharray: isImplicit ? '5,5' : 'none',
+            },
+            markerEnd: {
+              type: MarkerType.ArrowClosed,
+              color: isImplicit ? '#f59e0b' : '#94a3b8',
+            },
+            data: { type: edge.type }
+          };
+        });
 
         setNodes(rfNodes);
         setEdges(rfEdges);
@@ -210,26 +227,35 @@ export default function App() {
       );
 
       // Update edges state to highlight dependency path
-      setEdges(prevEdges =>
-        prevEdges.map(edge => {
-          const isBlastPath = pathEdgeSet.has(edge.id);
-          if (isBlastPath) {
-            return {
-              ...edge,
-              animated: true,
-              style: {
-                stroke: '#ef4444',
-                strokeWidth: 3.5,
-              },
-              markerEnd: {
-                type: MarkerType.ArrowClosed,
-                color: '#ef4444',
-              }
-            };
-          }
-          return edge;
-        })
-      );
+        setEdges(prevEdges =>
+          prevEdges.map(edge => {
+            const isBlastPath = pathEdgeSet.has(edge.id);
+            if (isBlastPath) {
+              return {
+                ...edge,
+                animated: true,
+                style: {
+                  stroke: '#ef4444',
+                  strokeWidth: 3.5,
+                },
+                markerEnd: {
+                  type: MarkerType.ArrowClosed,
+                  color: '#ef4444',
+                }
+              };
+            }
+            return edge;
+          })
+        );
+  
+        // Center view on affected nodes
+        setTimeout(() => {
+          fitView({
+            padding: 0.2,
+            duration: 800,
+            nodes: pathNodes.map(id => ({ id }))
+          });
+        }, 100);
 
     } catch (err) {
       console.error('Error running simulation:', err);
@@ -238,41 +264,51 @@ export default function App() {
     }
   };
 
-  const handleResetSimulation = () => {
-    setSimulationResult(null);
-    setRepairPanelOpen(false);
-    setRepairData(null);
-    if (!graphData) return;
-
-    setNodes(prevNodes =>
-      prevNodes.map(node => ({
-        ...node,
-        data: {
-          ...node.data,
-          isImpacted: false,
-          isTarget: false
-        }
-      }))
-    );
-
-    setEdges(graphData.edges.map(edge => ({
-      id: `${edge.source}-${edge.target}`,
-      source: edge.source,
-      target: edge.target,
-      type: 'smoothstep',
-      animated: edge.type === 'implicit',
-      style: {
-        stroke: edge.type === 'implicit' ? '#f59e0b' : '#94a3b8',
-        strokeWidth: edge.type === 'implicit' ? 2 : 1.5,
-        strokeDasharray: edge.type === 'implicit' ? '5,5' : 'none',
-      },
-      markerEnd: {
-        type: MarkerType.ArrowClosed,
-        color: edge.type === 'implicit' ? '#f59e0b' : '#94a3b8',
-      },
-      data: { type: edge.type }
-    })));
-  };
+    const handleResetSimulation = () => {
+      setSimulationResult(null);
+      setRepairPanelOpen(false);
+      setRepairData(null);
+      if (!graphData) return;
+  
+      setNodes(prevNodes =>
+        prevNodes.map(node => ({
+          ...node,
+          data: {
+            ...node.data,
+            isImpacted: false,
+            isTarget: false
+          }
+        }))
+      );
+  
+      setEdges(graphData.edges.map(edge => {
+        const isImplicit = edge.type === 'implicit' || edge.type === 'subscribes';
+        return {
+          id: `${edge.source}-${edge.target}`,
+          source: edge.source,
+          target: edge.target,
+          type: 'smoothstep',
+          animated: isImplicit,
+          style: {
+            stroke: isImplicit ? '#f59e0b' : '#94a3b8',
+            strokeWidth: isImplicit ? 2 : 1.5,
+            strokeDasharray: isImplicit ? '5,5' : 'none',
+          },
+          markerEnd: {
+            type: MarkerType.ArrowClosed,
+            color: isImplicit ? '#f59e0b' : '#94a3b8',
+          },
+          data: { type: edge.type }
+        };
+      }));
+      
+      setTimeout(() => {
+        fitView({
+          padding: 0.1,
+          duration: 800
+        });
+      }, 100);
+    };
 
   const handleGenerateRepair = async () => {
     setLoadingRepair(true);
@@ -307,37 +343,64 @@ export default function App() {
   return (
     <div className="flex h-screen w-full flex-col bg-gray-950 font-sans">
       {/* Header */}
-      <header className="flex h-14 items-center justify-between border-b border-gray-800 bg-gray-900 px-6 shrink-0 z-10">
-        <div className="flex items-center gap-3">
-          <Activity className="text-blue-500" />
-          <div>
-            <h1 className="text-lg font-semibold text-white leading-tight">LatentTwin</h1>
-            <p className="text-xs text-gray-400">Codebase Digital Twin & Self-Healing Engine</p>
+        <header className="flex h-14 items-center justify-between border-b border-gray-800 bg-gray-900 px-6 shrink-0 z-10">
+          <div className="flex items-center gap-3">
+            <Activity className="text-blue-500" />
+            <div>
+              <h1 className="text-lg font-semibold text-white leading-tight">LatentTwin</h1>
+              <p className="text-xs text-gray-400">Codebase Digital Twin & Self-Healing Engine</p>
+            </div>
           </div>
-        </div>
-        
-        <div className="flex items-center gap-4 text-sm">
-          <div className="flex items-center gap-2">
-            <span className="text-gray-400">API:</span>
-            {backendStatus === 'connected' ? (
-              <span className="flex items-center gap-1.5 text-green-400 bg-green-400/10 px-2 py-1 rounded-md text-xs font-medium border border-green-400/20">
-                <span className="w-1.5 h-1.5 bg-green-400 rounded-full animate-pulse"></span>
-                Connected
-              </span>
-            ) : backendStatus === 'connecting' ? (
-              <span className="flex items-center gap-1.5 text-yellow-400 bg-yellow-400/10 px-2 py-1 rounded-md text-xs font-medium border border-yellow-400/20">
-                <span className="w-1.5 h-1.5 bg-yellow-400 rounded-full"></span>
-                Connecting...
-              </span>
+          
+          <div className="flex items-center gap-6">
+            {/* System Status Indicator */}
+            {simulationResult ? (
+              <div className="flex flex-col items-end">
+                <span className="flex items-center gap-2 text-red-500 font-bold text-sm tracking-wide">
+                  <span className="relative flex h-3 w-3">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-3 w-3 bg-red-500"></span>
+                  </span>
+                  CRITICAL — BLAST RADIUS DETECTED
+                </span>
+                <span className="text-xs text-red-400 font-medium">
+                  {simulationResult.affectedNodes?.length || 0} NODES AFFECTED
+                </span>
+              </div>
             ) : (
-              <span className="flex items-center gap-1.5 text-red-400 bg-red-400/10 px-2 py-1 rounded-md text-xs font-medium border border-red-400/20">
-                <span className="w-1.5 h-1.5 bg-red-400 rounded-full"></span>
-                Disconnected
-              </span>
+              <div className="flex items-center gap-2 text-green-500 font-bold text-sm tracking-wide">
+                <span className="relative flex h-3 w-3">
+                  <span className="relative inline-flex rounded-full h-3 w-3 bg-green-500"></span>
+                </span>
+                SYSTEM OPERATIONAL
+              </div>
             )}
+  
+            <div className="h-6 w-px bg-gray-700"></div>
+  
+            <div className="flex items-center gap-4 text-sm">
+              <div className="flex items-center gap-2">
+                <span className="text-gray-400">API:</span>
+                {backendStatus === 'connected' ? (
+                  <span className="flex items-center gap-1.5 text-green-400 bg-green-400/10 px-2 py-1 rounded-md text-xs font-medium border border-green-400/20">
+                    <span className="w-1.5 h-1.5 bg-green-400 rounded-full animate-pulse"></span>
+                    Connected
+                  </span>
+                ) : backendStatus === 'connecting' ? (
+                  <span className="flex items-center gap-1.5 text-yellow-400 bg-yellow-400/10 px-2 py-1 rounded-md text-xs font-medium border border-yellow-400/20">
+                    <span className="w-1.5 h-1.5 bg-yellow-400 rounded-full"></span>
+                    Connecting...
+                  </span>
+                ) : (
+                  <span className="flex items-center gap-1.5 text-red-400 bg-red-400/10 px-2 py-1 rounded-md text-xs font-medium border border-red-400/20">
+                    <span className="w-1.5 h-1.5 bg-red-400 rounded-full"></span>
+                    Disconnected
+                  </span>
+                )}
+              </div>
+            </div>
           </div>
-        </div>
-      </header>
+        </header>
 
       {/* Main Content */}
       <div className="flex flex-1 overflow-hidden relative">
@@ -700,5 +763,13 @@ export default function App() {
         )}
       </div>
     </div>
+  );
+}
+
+export default function App() {
+  return (
+    <ReactFlowProvider>
+      <FlowContent />
+    </ReactFlowProvider>
   );
 }
