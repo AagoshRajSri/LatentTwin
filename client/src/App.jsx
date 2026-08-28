@@ -414,6 +414,37 @@ const nodeTypes = {
       });
       const data = await response.json();
       setApplyResult(data);
+      
+      if (data.status === 'SYSTEM HEALED') {
+        // Clear the blast radius visual state but keep the panel open
+        setNodes(prevNodes =>
+          prevNodes.map(node => ({
+            ...node,
+            data: {
+              ...node.data,
+              isImpacted: false,
+              isTarget: false
+            }
+          }))
+        );
+        
+        setEdges(prevEdges => prevEdges.map(edge => {
+          const isImplicit = edge.data?.relationshipType === 'implicit_queue' || edge.data?.relationshipType === 'implicit_db' || edge.data?.type === 'implicit' || edge.data?.type === 'subscribes';
+          return {
+            ...edge,
+            animated: isImplicit,
+            style: {
+              stroke: isImplicit ? '#f59e0b' : '#94a3b8',
+              strokeWidth: isImplicit ? 2 : 1.5,
+              strokeDasharray: isImplicit ? '5,5' : 'none',
+            },
+            markerEnd: {
+              type: MarkerType.ArrowClosed,
+              color: isImplicit ? '#f59e0b' : '#94a3b8',
+            }
+          };
+        }));
+      }
     } catch (err) {
       console.error('Error applying patch:', err);
       setApplyResult({
@@ -447,7 +478,7 @@ const nodeTypes = {
           
           <div className="flex items-center gap-6">
             {/* System Status Indicator */}
-            {simulationResult ? (
+            {simulationResult && applyResult?.status !== 'SYSTEM HEALED' ? (
               <div className="flex flex-col items-end">
                 <span className="flex items-center gap-2 text-red-500 font-bold text-sm tracking-wide">
                   <span className="relative flex h-3 w-3">
@@ -459,6 +490,13 @@ const nodeTypes = {
                 <span className="text-xs text-red-400 font-medium">
                   {simulationResult.affectedNodes?.length || 0} NODES AFFECTED
                 </span>
+              </div>
+            ) : applyResult?.status === 'SYSTEM HEALED' ? (
+              <div className="flex items-center gap-2 text-green-500 font-bold text-sm tracking-wide">
+                <span className="relative flex h-3 w-3">
+                  <span className="relative inline-flex rounded-full h-3 w-3 bg-green-500"></span>
+                </span>
+                SYSTEM HEALED
               </div>
             ) : (
               <div className="flex items-center gap-2 text-green-500 font-bold text-sm tracking-wide">
@@ -587,7 +625,7 @@ const nodeTypes = {
           </div>
 
           {/* Blast Radius Summary Card */}
-          {simulationResult && (
+          {simulationResult && applyResult?.status !== 'SYSTEM HEALED' && (
             <div className="bg-red-950/40 border border-red-800/60 p-4 rounded-xl shadow-2xl backdrop-blur-md animate-fade-in flex flex-col gap-3 pointer-events-auto">
               <div className="flex items-center gap-2 border-b border-red-800/40 pb-2">
                 <AlertCircle className="text-red-400 shrink-0" size={18} />
