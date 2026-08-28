@@ -20,18 +20,18 @@ const CustomServiceNode = ({ data, selected, id }) => {
   const isImpacted = data.isImpacted;
   const isTarget = data.isTarget;
 
-  let borderColor = selected ? 'border-blue-500' : 'border-gray-600';
-  let bgColor = 'bg-gray-800';
-  let badgeColor = 'bg-blue-500/20 text-blue-400';
+  let borderColor = selected ? 'border-blue-500' : 'border-gray-700';
+  let bgColor = 'bg-gray-900';
+  let badgeColor = 'bg-blue-500/10 text-blue-500';
 
   if (isTarget) {
-    borderColor = 'border-amber-500 shadow-amber-500/50 shadow-lg';
-    bgColor = 'bg-amber-950/40';
-    badgeColor = 'bg-amber-500/20 text-amber-400';
+    borderColor = 'border-amber-500 shadow-md shadow-amber-900/20';
+    bgColor = 'bg-amber-950/80';
+    badgeColor = 'bg-amber-500/20 text-amber-500';
   } else if (isImpacted) {
-    borderColor = 'border-red-500 shadow-red-500/50 shadow-lg animate-pulse';
-    bgColor = 'bg-red-950/40';
-    badgeColor = 'bg-red-500/20 text-red-400';
+    borderColor = 'border-red-500 shadow-md shadow-red-900/20';
+    bgColor = 'bg-red-950/80';
+    badgeColor = 'bg-red-500/20 text-red-500';
   }
 
   return (
@@ -42,18 +42,18 @@ const CustomServiceNode = ({ data, selected, id }) => {
         id="target" 
         className="w-2 h-2 !bg-gray-500 border-none opacity-0" 
       />
-      <div className={`px-4 py-3 shadow-md rounded-md ${bgColor} border-2 ${borderColor} text-white flex items-center gap-3 min-w-[150px] transition-all`}>
-        <div className={`p-2 rounded-md ${badgeColor}`}>
+      <div className={`px-5 py-4 shadow-lg rounded ${bgColor} border ${borderColor} text-white flex items-center gap-4 min-w-[180px] transition-all`}>
+        <div className={`p-2 rounded ${badgeColor}`}>
           <Server size={18} />
         </div>
         <div className="flex flex-col">
-          <span className="font-bold text-sm flex items-center gap-1.5">
+          <span className="font-semibold text-sm flex items-center gap-2 tracking-wide">
             {data.label}
             {isImpacted && !isTarget && (
-              <span className="flex h-2 w-2 rounded-full bg-red-500 animate-ping" />
+              <span className="flex h-1.5 w-1.5 rounded-full bg-red-500 animate-pulse" />
             )}
           </span>
-          <span className="text-xs text-gray-400">
+          <span className="text-[10px] uppercase font-bold tracking-widest text-gray-500 mt-0.5">
             {isTarget ? 'Target Service' : isImpacted ? 'Impacted Service' : 'Service'}
           </span>
         </div>
@@ -77,13 +77,13 @@ const CustomInfraNode = ({ data, selected, id }) => {
   let badgeColor = 'bg-purple-500/20 text-purple-400';
 
   if (isTarget) {
-    borderColor = 'border-amber-500 shadow-amber-500/50 shadow-lg';
-    bgColor = 'bg-amber-950/40';
-    badgeColor = 'bg-amber-500/20 text-amber-400';
+    borderColor = 'border-amber-500 shadow-md shadow-amber-900/20';
+    bgColor = 'bg-amber-950/80';
+    badgeColor = 'bg-amber-500/20 text-amber-500';
   } else if (isImpacted) {
-    borderColor = 'border-red-500 shadow-red-500/50 shadow-lg animate-pulse';
-    bgColor = 'bg-red-950/40';
-    badgeColor = 'bg-red-500/20 text-red-400';
+    borderColor = 'border-red-500 shadow-md shadow-red-900/20';
+    bgColor = 'bg-red-950/80';
+    badgeColor = 'bg-red-500/20 text-red-500';
   }
 
   return (
@@ -94,18 +94,18 @@ const CustomInfraNode = ({ data, selected, id }) => {
         id="target" 
         className="w-2 h-2 !bg-purple-500 border-none opacity-0" 
       />
-      <div className={`px-4 py-3 shadow-md rounded-md ${bgColor} border-2 ${borderColor} text-white flex items-center gap-3 min-w-[150px] transition-all`}>
-        <div className={`p-2 rounded-md ${badgeColor}`}>
+      <div className={`px-5 py-4 shadow-lg rounded ${bgColor} border ${borderColor} text-white flex items-center gap-4 min-w-[180px] transition-all`}>
+        <div className={`p-2 rounded ${badgeColor}`}>
           <Database size={18} />
         </div>
         <div className="flex flex-col">
-          <span className="font-bold text-sm flex items-center gap-1.5">
+          <span className="font-semibold text-sm flex items-center gap-2 tracking-wide">
             {data.label}
             {isImpacted && !isTarget && (
-              <span className="flex h-2 w-2 rounded-full bg-red-500 animate-ping" />
+              <span className="flex h-1.5 w-1.5 rounded-full bg-red-500 animate-pulse" />
             )}
           </span>
-          <span className="text-xs text-gray-400">
+          <span className="text-[10px] uppercase font-bold tracking-widest text-gray-500 mt-0.5">
             {isTarget ? 'Target Queue' : isImpacted ? 'Impacted Queue' : 'Infrastructure'}
           </span>
         </div>
@@ -480,34 +480,31 @@ const nodeTypes = {
             {/* System Status Indicator */}
             {simulationResult && applyResult?.status !== 'SYSTEM HEALED' ? (
               <div className="flex flex-col items-end">
-                <span className="flex items-center gap-2 text-red-500 font-bold text-sm tracking-wide">
-                  <span className="relative flex h-3 w-3">
+                <span className="flex items-center gap-2 text-red-500 font-bold text-xs uppercase tracking-widest">
+                  <span className="relative flex h-2 w-2">
                     <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
-                    <span className="relative inline-flex rounded-full h-3 w-3 bg-red-500"></span>
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span>
                   </span>
-                  CRITICAL — BLAST RADIUS DETECTED
-                </span>
-                <span className="text-xs text-red-400 font-medium">
-                  {simulationResult.affectedNodes?.length || 0} NODES AFFECTED
+                  Critical: Blast Radius Detected
                 </span>
               </div>
             ) : applyResult?.status === 'SYSTEM HEALED' ? (
-              <div className="flex items-center gap-2 text-green-500 font-bold text-sm tracking-wide">
-                <span className="relative flex h-3 w-3">
-                  <span className="relative inline-flex rounded-full h-3 w-3 bg-green-500"></span>
+              <div className="flex items-center gap-2 text-green-500 font-bold text-xs uppercase tracking-widest">
+                <span className="relative flex h-2 w-2">
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
                 </span>
-                SYSTEM HEALED
+                System Healed
               </div>
             ) : (
-              <div className="flex items-center gap-2 text-green-500 font-bold text-sm tracking-wide">
-                <span className="relative flex h-3 w-3">
-                  <span className="relative inline-flex rounded-full h-3 w-3 bg-green-500"></span>
+              <div className="flex items-center gap-2 text-green-500 font-bold text-xs uppercase tracking-widest">
+                <span className="relative flex h-2 w-2">
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
                 </span>
-                SYSTEM OPERATIONAL
+                System Operational
               </div>
             )}
   
-            <div className="h-6 w-px bg-gray-700"></div>
+            <div className="h-6 w-px bg-gray-800"></div>
   
             <div className="flex items-center gap-4 text-sm">
               <div className="flex items-center gap-2">
@@ -572,42 +569,23 @@ const nodeTypes = {
                 className="bg-gray-900 border border-gray-800"
               />
               
-              {/* Legend overlay */}
-              <div className="absolute bottom-6 left-6 z-10 bg-gray-900/90 border border-gray-800 p-4 rounded-lg shadow-xl backdrop-blur-sm">
-                <h3 className="text-xs font-semibold text-gray-400 mb-3 uppercase tracking-wider">Dependency Types</h3>
-                <div className="flex flex-col gap-3 text-sm">
-                  <div className="flex items-center gap-3">
-                    <div className="w-8 h-0.5 bg-slate-400"></div>
-                    <span className="text-gray-300">Explicit / Direct Call</span>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <div className="w-8 border-b-2 border-dashed border-amber-500"></div>
-                    <span className="text-gray-300">Implicit / Runtime Event</span>
-                  </div>
-                  {simulationResult && (
-                    <div className="flex items-center gap-3 pt-1 border-t border-gray-800">
-                      <div className="w-8 h-1 bg-red-500 rounded-full animate-pulse"></div>
-                      <span className="text-red-400 font-medium text-xs">Blast Radius Path</span>
-                    </div>
-                  )}
-                </div>
-              </div>
+              {/* Removed absolute Legend overlay from here */}
             </ReactFlow>
           )}
         </div>
 
-        {/* Action Toolbar / Summary Overlay */}
-        <div className="absolute top-4 bottom-4 left-4 z-20 flex flex-col gap-3 w-80 max-h-full overflow-y-auto pointer-events-none">
+        {/* Left Side Navigation / State / Overlay */}
+        <div className="absolute top-6 bottom-6 left-6 z-20 flex flex-col gap-4 w-80 max-h-full overflow-y-auto pointer-events-none pb-4 hide-scrollbar">
           {/* Inject Breaking Change Control */}
-          <div className="bg-gray-900/95 border border-gray-800 p-4 rounded-xl shadow-2xl backdrop-blur-md pointer-events-auto">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider flex items-center gap-1.5">
-                <Zap size={14} className="text-amber-400" /> Simulator Control
+          <div className="bg-gray-900 border border-gray-800 p-4 rounded-xl shadow-xl pointer-events-auto shrink-0">
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest flex items-center gap-1.5">
+                <Zap size={14} className="text-amber-500" /> Simulator
               </span>
               {simulationResult && (
                 <button
                   onClick={handleResetSimulation}
-                  className="text-xs text-gray-400 hover:text-white flex items-center gap-1 bg-gray-800 px-2 py-0.5 rounded border border-gray-700 transition"
+                  className="text-[10px] uppercase font-bold tracking-wider text-gray-400 hover:text-white flex items-center gap-1 bg-gray-800 px-2 py-1 rounded border border-gray-700 transition"
                 >
                   <RefreshCw size={12} /> Reset
                 </button>
@@ -617,30 +595,31 @@ const nodeTypes = {
             <button
               onClick={handleSimulateBreak}
               disabled={simulating}
-              className="w-full bg-gradient-to-r from-red-600 to-amber-600 hover:from-red-500 hover:to-amber-500 text-white font-medium text-sm py-2.5 px-4 rounded-lg shadow-md transition flex items-center justify-center gap-2 disabled:opacity-50"
+              className="w-full bg-amber-600 hover:bg-amber-500 text-white font-semibold text-xs uppercase tracking-wide py-2.5 px-4 rounded-lg shadow-sm transition flex items-center justify-center gap-2 disabled:opacity-50"
             >
-              <AlertTriangle size={16} />
-              {simulating ? 'Simulating...' : 'Inject Breaking Change — Rename user_id'}
+              <AlertTriangle size={14} />
+              {simulating ? 'Simulating...' : 'Inject Breaking Change'}
             </button>
           </div>
 
           {/* Blast Radius Summary Card */}
           {simulationResult && applyResult?.status !== 'SYSTEM HEALED' && (
-            <div className="bg-red-950/40 border border-red-800/60 p-4 rounded-xl shadow-2xl backdrop-blur-md animate-fade-in flex flex-col gap-3 pointer-events-auto">
-              <div className="flex items-center gap-2 border-b border-red-800/40 pb-2">
-                <AlertCircle className="text-red-400 shrink-0" size={18} />
-                <h2 className="text-sm font-bold text-red-200 uppercase tracking-wide">
-                  Breaking change detected
-                </h2>
-              </div>
-
-              <div className="bg-red-900/20 border border-red-800/40 p-2.5 rounded-lg text-center font-mono text-xs text-red-300">
-                user_id → userId
+            <div className="bg-red-950/80 border border-red-900/50 p-4 rounded-xl shadow-xl animate-fade-in flex flex-col gap-4 pointer-events-auto shrink-0">
+              <div className="flex flex-col gap-1 border-b border-red-900/50 pb-3">
+                <div className="flex items-center gap-2">
+                  <AlertCircle className="text-red-500 shrink-0" size={16} />
+                  <h2 className="text-[10px] font-bold text-red-400 uppercase tracking-widest">
+                    Critical Error
+                  </h2>
+                </div>
+                <div className="font-mono text-xs text-red-200 mt-1 pl-6">
+                  Type mismatch: user_id → userId
+                </div>
               </div>
 
               <div>
-                <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">
-                  Blast radius:
+                <h3 className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-2">
+                  Blast Radius
                 </h3>
                 <div className="flex flex-col gap-1.5">
                   {simulationResult.affectedNodes
@@ -649,8 +628,8 @@ const nodeTypes = {
                       const nodeObj = nodes.find(n => n.id === nodeId);
                       const name = nodeObj ? nodeObj.data.name : nodeId;
                       return (
-                        <div key={nodeId} className="flex items-center gap-2 text-sm text-red-200 bg-red-950/60 border border-red-800/40 px-3 py-1.5 rounded-md font-medium">
-                          <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse"></span>
+                        <div key={nodeId} className="flex items-center gap-2 text-xs text-red-300 bg-red-900/20 border border-red-900/30 px-2 py-1.5 rounded font-medium">
+                          <span className="w-1.5 h-1.5 rounded-full bg-red-500"></span>
                           <span>{name}</span>
                         </div>
                       );
@@ -659,14 +638,14 @@ const nodeTypes = {
               </div>
 
               {simulationResult.relevantInvariants && simulationResult.relevantInvariants.length > 0 && (
-                <div className="pt-2 border-t border-red-800/40">
-                  <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                    <GitMerge size={12} className="text-red-400" /> Historical PR Invariants:
+                <div className="pt-3 border-t border-red-900/50">
+                  <h3 className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-2 flex items-center gap-1.5">
+                    <GitMerge size={12} className="text-gray-400" /> Applicable Invariants
                   </h3>
                   <div className="flex flex-col gap-2">
                     {simulationResult.relevantInvariants.map((inv, idx) => (
-                      <div key={idx} className="bg-gray-900/80 border border-gray-800 p-2 rounded text-xs text-gray-300">
-                        <span className="font-mono bg-red-500/20 text-red-300 px-1 py-0.5 rounded text-[10px] mr-1.5">
+                      <div key={idx} className="bg-gray-900/50 border border-gray-800 p-2 rounded text-xs text-gray-400 leading-relaxed">
+                        <span className="font-mono text-gray-500 mr-2">
                           {inv.pr}
                         </span>
                         <span>{inv.description}</span>
@@ -676,19 +655,40 @@ const nodeTypes = {
                 </div>
               )}
               {simulationResult.relevantInvariants && simulationResult.relevantInvariants.length > 0 && (
-                <div className="pt-2 border-t border-red-800/40 mt-2">
+                <div className="pt-3 border-t border-red-900/50 mt-1">
                   <button
                     onClick={handleGenerateRepair}
                     disabled={loadingRepair}
-                    className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-medium text-sm py-2 px-4 rounded-lg shadow-md transition flex items-center justify-center gap-2 disabled:opacity-50"
+                    className="w-full bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs uppercase tracking-wide py-2.5 px-4 rounded-lg shadow-sm transition flex items-center justify-center gap-2 disabled:opacity-50"
                   >
-                    <Wrench size={16} />
-                    {loadingRepair ? 'Generating...' : 'Generate LatentCode Patch'}
+                    <Wrench size={14} />
+                    {loadingRepair ? 'Generating...' : 'Generate Repair'}
                   </button>
                 </div>
               )}
             </div>
           )}
+
+          {/* Dependency Types Legend inside left panel flow */}
+          <div className="bg-gray-900 border border-gray-800 p-4 rounded-xl shadow-xl pointer-events-auto shrink-0 mt-auto">
+            <h3 className="text-[10px] font-bold text-gray-500 mb-3 uppercase tracking-widest">Dependency Types</h3>
+            <div className="flex flex-col gap-3 text-xs font-medium">
+              <div className="flex items-center gap-3">
+                <div className="w-6 h-0.5 bg-gray-500"></div>
+                <span className="text-gray-400">Explicit Call</span>
+              </div>
+              <div className="flex items-center gap-3">
+                <div className="w-6 border-b-2 border-dashed border-gray-500"></div>
+                <span className="text-gray-400">Implicit Event</span>
+              </div>
+              {simulationResult && (
+                <div className="flex items-center gap-3 pt-2 border-t border-gray-800">
+                  <div className="w-6 h-0.5 bg-red-500"></div>
+                  <span className="text-red-400">Blast Radius Path</span>
+                </div>
+              )}
+            </div>
+          </div>
         </div>
 
         {/* Repair Panel Overlay */}
@@ -707,28 +707,28 @@ const nodeTypes = {
               </button>
             </div>
             
-            <div className="flex-1 min-h-0 overflow-y-auto p-5">
+            <div className="flex-1 min-h-0 overflow-y-auto p-6">
               {loadingRepair ? (
-                <div className="flex flex-col items-center justify-center py-10 gap-3 text-gray-400">
+                <div className="flex flex-col items-center justify-center py-20 gap-4 text-gray-500">
                   <Activity className="animate-spin text-blue-500" size={24} />
-                  <span className="text-sm">Synthesizing patch...</span>
+                  <span className="text-[10px] uppercase font-bold tracking-widest">Synthesizing patch...</span>
                 </div>
               ) : repairData ? (
-                <div className="flex flex-col gap-5">
-                  <div className="grid grid-cols-2 gap-3 text-sm">
-                    <div className="bg-gray-800/50 p-2.5 rounded-lg border border-gray-800">
-                      <span className="text-xs text-gray-500 block mb-1">Detected Change</span>
-                      <span className="font-mono text-red-300 text-xs">{repairData.detectedChange}</span>
+                <div className="flex flex-col gap-6">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="bg-gray-900 border border-gray-800 p-3 rounded">
+                      <span className="text-[10px] uppercase font-bold text-gray-500 block mb-1">Detected Change</span>
+                      <span className="font-mono text-red-400 text-xs">{repairData.detectedChange}</span>
                     </div>
-                    <div className="bg-gray-800/50 p-2.5 rounded-lg border border-gray-800">
-                      <span className="text-xs text-gray-500 block mb-1">Affected Service</span>
-                      <span className="text-gray-300 font-medium">{repairData.affectedService}</span>
+                    <div className="bg-gray-900 border border-gray-800 p-3 rounded">
+                      <span className="text-[10px] uppercase font-bold text-gray-500 block mb-1">Affected Service</span>
+                      <span className="text-gray-200 text-xs font-semibold">{repairData.affectedService}</span>
                     </div>
                   </div>
 
                   <div>
-                    <h3 className="text-xs font-semibold text-gray-400 mb-2">Dependency Trace</h3>
-                    <div className="flex items-center gap-2 text-xs font-mono bg-gray-800/30 p-2 rounded border border-gray-800/50 overflow-x-auto text-gray-400 whitespace-nowrap">
+                    <h3 className="text-[10px] uppercase font-bold text-gray-500 mb-2 tracking-widest">Dependency Trace</h3>
+                    <div className="flex items-center gap-2 text-xs font-mono bg-gray-900 p-3 rounded border border-gray-800 overflow-x-auto text-gray-400 whitespace-nowrap">
                       {repairData.dependencyPath.map((node, i) => (
                         <React.Fragment key={node}>
                           <span>{node}</span>
@@ -739,11 +739,11 @@ const nodeTypes = {
                   </div>
 
                   <div>
-                    <h3 className="text-xs font-semibold text-gray-400 mb-2">Applicable Invariants</h3>
+                    <h3 className="text-[10px] uppercase font-bold text-gray-500 mb-2 tracking-widest">Applicable Invariants</h3>
                     <div className="flex flex-col gap-2">
                       {repairData.historicalInvariants.map((inv, i) => (
-                        <div key={i} className="text-xs text-gray-300 bg-blue-900/10 border border-blue-900/30 p-2 rounded flex gap-2">
-                          <span className="font-mono text-blue-400 shrink-0">{inv.pr}</span>
+                        <div key={i} className="text-xs text-gray-300 bg-gray-900 border border-gray-800 p-3 rounded flex flex-col gap-1.5 leading-relaxed">
+                          <span className="font-mono text-blue-400 text-[10px]">{inv.pr}</span>
                           <span>{inv.description}</span>
                         </div>
                       ))}
@@ -751,39 +751,47 @@ const nodeTypes = {
                   </div>
 
                   <div>
-                    <h3 className="text-xs font-semibold text-gray-400 mb-2">Proposed Repair</h3>
-                    <p className="text-sm text-gray-300 bg-gray-800/50 p-3 rounded-lg border border-gray-800">
+                    <h3 className="text-[10px] uppercase font-bold text-gray-500 mb-2 tracking-widest">Proposed Repair</h3>
+                    <p className="text-xs text-gray-300 bg-gray-900 p-4 rounded border border-gray-800 leading-relaxed">
                       {repairData.proposedRepair}
                     </p>
                   </div>
 
                   <div>
-                    <h3 className="text-xs font-semibold text-gray-400 mb-2">Generated Patch</h3>
-                    <div className="max-h-[320px] overflow-auto rounded-lg border border-gray-800 bg-gray-950">
-                      <pre className="text-[11px] font-mono p-3 min-w-max">
+                    <h3 className="text-[10px] uppercase font-bold text-gray-500 mb-2 tracking-widest">Generated Patch</h3>
+                    <div className="max-h-[320px] overflow-auto rounded border border-gray-800 bg-gray-950 shadow-inner">
+                      <pre className="text-[11px] font-mono p-4 min-w-max leading-relaxed">
                         {repairData.diff.split('\n').map((line, i) => {
-                          let color = 'text-gray-300';
-                          if (line.startsWith('+')) color = 'text-green-400';
-                          else if (line.startsWith('-')) color = 'text-red-400';
-                          else if (line.startsWith('@@')) color = 'text-blue-400';
+                          let color = 'text-gray-400';
+                          let bgColor = 'bg-transparent';
+                          if (line.startsWith('+')) {
+                            color = 'text-green-400';
+                            bgColor = 'bg-green-950/30';
+                          } else if (line.startsWith('-')) {
+                            color = 'text-red-400';
+                            bgColor = 'bg-red-950/30';
+                          } else if (line.startsWith('@@')) {
+                            color = 'text-blue-400';
+                          }
                           
-                          return <div key={i} className={color}>{line}</div>;
+                          return <div key={i} className={`${color} ${bgColor} px-1`}>{line}</div>;
                         })}
                       </pre>
                     </div>
                   </div>
                   
                   {applyResult && (
-                    <div className={`mt-2 p-3 rounded-lg border ${applyResult.status === 'SYSTEM HEALED' ? 'bg-green-900/20 border-green-800/50' : 'bg-red-900/20 border-red-800/50'}`}>
-                      <h3 className={`text-sm font-bold mb-1 ${applyResult.status === 'SYSTEM HEALED' ? 'text-green-400' : 'text-red-400'}`}>
+                    <div className={`mt-2 p-4 rounded border ${applyResult.status === 'SYSTEM HEALED' ? 'bg-green-950/50 border-green-900/50' : 'bg-red-950/50 border-red-900/50'}`}>
+                      <h3 className={`text-xs uppercase tracking-widest font-bold mb-2 flex items-center gap-2 ${applyResult.status === 'SYSTEM HEALED' ? 'text-green-500' : 'text-red-500'}`}>
+                        {applyResult.status === 'SYSTEM HEALED' && <span className="w-2 h-2 bg-green-500 rounded-full"></span>}
                         {applyResult.status}
                       </h3>
-                      <p className="text-xs text-gray-300 mb-2">{applyResult.message}</p>
+                      <p className="text-xs text-gray-300 mb-3">{applyResult.message}</p>
                       
                       {applyResult.validationResult && (
-                        <div className="mt-2">
-                          <h4 className="text-[10px] uppercase font-bold text-gray-500 mb-1">Test Summary</h4>
-                          <pre className="text-[10px] font-mono bg-gray-950 p-2 rounded border border-gray-800 overflow-x-auto max-h-32 text-gray-400">
+                        <div className="mt-4 pt-4 border-t border-gray-800/50">
+                          <h4 className="text-[10px] uppercase font-bold text-gray-500 mb-2 tracking-widest">Test Summary</h4>
+                          <pre className="text-[10px] font-mono bg-gray-950 p-3 rounded border border-gray-800 overflow-x-auto max-h-48 text-gray-400">
                             {applyResult.validationResult.stdout || applyResult.validationResult.stderr || 'No output'}
                           </pre>
                         </div>
@@ -793,29 +801,29 @@ const nodeTypes = {
                 </div>
               ) : null}
             </div>
-            
+
             {repairData && !loadingRepair && (
-              <div className="flex-shrink-0 p-4 border-t border-gray-800 bg-gray-800/30 flex justify-end gap-3">
+              <div className="flex-shrink-0 p-4 border-t border-gray-800 bg-gray-900 flex justify-end gap-3 sticky bottom-0">
                 <button 
                   onClick={() => setRepairPanelOpen(false)}
-                  className="px-4 py-2 text-sm font-medium text-gray-300 hover:text-white transition"
+                  className="px-4 py-2 text-xs font-semibold uppercase tracking-wide text-gray-400 hover:text-white transition"
                 >
                   Dismiss
                 </button>
                 <button 
                   onClick={handleApplyPatch}
                   disabled={applyingPatch || (applyResult && applyResult.status === 'SYSTEM HEALED')}
-                  className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium rounded-md transition shadow-md disabled:opacity-50 flex items-center gap-2"
+                  className="px-5 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold uppercase tracking-wide rounded shadow-sm disabled:opacity-50 flex items-center gap-2 transition"
                 >
                   {applyingPatch ? (
                     <>
                       <Activity className="animate-spin" size={14} />
-                      Applying & Running Tests...
+                      Applying & Validating...
                     </>
                   ) : applyResult && applyResult.status === 'REPAIR FAILED' ? (
                     'Retry Patch'
                   ) : applyResult && applyResult.status === 'SYSTEM HEALED' ? (
-                    'Applied'
+                    'Applied Successfully'
                   ) : (
                     'Apply Patch & Validate'
                   )}
