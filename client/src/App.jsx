@@ -395,6 +395,10 @@ const nodeTypes = {
     setSelectedNode(null);
   }, []);
 
+  const onNodeClick = useCallback((event, node) => {
+    setSelectedNode(node);
+  }, []);
+
   return (
     <div className="flex h-screen w-full flex-col bg-gray-950 font-sans">
       {/* Header */}
