@@ -565,7 +565,7 @@ const nodeTypes = {
               colorMode="dark"
             >
               <Background color="#334155" gap={20} size={1} />
-              <Controls className="bg-gray-800 border-gray-700 text-gray-300 fill-gray-300" />
+              <Controls position="top-right" className="bg-gray-800 border-gray-700 text-gray-300 fill-gray-300 shadow-xl" style={{ zIndex: 50 }} />
               <MiniMap 
                 nodeStrokeColor={(n) => {
                   if (n.type === 'service') return '#3b82f6';
