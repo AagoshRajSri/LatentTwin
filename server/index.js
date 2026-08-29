@@ -1,5 +1,6 @@
 const express = require('express');
 const cors = require('cors');
+const rateLimit = require('express-rate-limit');
 const { getGraph, traverse, simulateBreak } = require('./graph');
 const { generateRepair } = require('./repair');
 const { simulateBreakWithContext } = require('./simulate');
@@ -29,7 +30,59 @@ app.use(cors({
   }
 }));
 
+app.set('trust proxy', 1);
 app.use(express.json());
+
+const strictPaths = [
+  '/api/simulate-break',
+  '/api/repair',
+  '/api/apply-patch'
+];
+
+const rateLimitHandler = (req, res, next, options) => {
+  const resetTime = req.rateLimit.resetTime;
+  const retryAfterSeconds = Math.max(
+    0,
+    Math.ceil((resetTime - Date.now()) / 1000)
+  );
+
+  res.setHeader('Retry-After', retryAfterSeconds.toString());
+
+  res.status(429).json({
+    error: "rate_limit_exceeded",
+    message: "Too many requests. You have exceeded the configured request limit.",
+    retry_after_seconds: retryAfterSeconds,
+    limit: options.max,
+    window: "900s",
+    reset_at: resetTime.toISOString()
+  });
+};
+
+const standardLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 100,
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: rateLimitHandler,
+  skip: (req) => {
+    const pathname = new URL(req.originalUrl, 'http://localhost').pathname;
+    return strictPaths.includes(pathname);
+  }
+});
+
+const strictLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: rateLimitHandler
+});
+
+app.use('/api', standardLimiter);
+
+strictPaths.forEach(path => {
+  app.use(path, strictLimiter);
+});
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok' });
