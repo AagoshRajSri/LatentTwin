@@ -1,0 +1,538 @@
+/* ============================================================
+   CrossSectionNode — Pure CSS 3D Transforms, Zero WebGL
+   All transitions are GPU-composited via transform/opacity only.
+   ============================================================ */
+
+/* ── Scene wrapper: establishes the perspective context ── */
+.csn-scene {
+  perspective: 1000px;
+  width: 100%;
+  min-width: 300px;
+  max-width: 340px;
+  position: relative;
+  padding: 4px;
+  /* Required so ReactFlow can still handle pointer events outside */
+  pointer-events: none;
+}
+
+/* ── Node shell (outermost click-capturer) ── */
+.csn-shell {
+  pointer-events: all;
+  position: relative;
+}
+
+/* ── Header bar (always visible) ── */
+.csn-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: #0f172a;
+  border: 1px solid #1e293b;
+  border-radius: 8px 8px 0 0;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.2s ease;
+}
+
+.csn-header:hover {
+  background: #111827;
+}
+
+.csn-header-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+
+.csn-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  transition: background-color 0.4s ease, box-shadow 0.4s ease;
+}
+
+.csn-status-dot.healthy {
+  background: #22c55e;
+  box-shadow: 0 0 6px rgba(34, 197, 94, 0.6);
+}
+
+.csn-status-dot.impacted {
+  background: #ef4444;
+  box-shadow: 0 0 8px rgba(239, 68, 68, 0.8);
+  animation: csn-pulse-red 1.4s ease-in-out infinite;
+}
+
+.csn-status-dot.resolved {
+  background: #22c55e;
+  box-shadow: 0 0 10px rgba(34, 197, 94, 0.9);
+  animation: csn-pulse-green 1.2s ease-in-out 2;
+}
+
+@keyframes csn-pulse-red {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+@keyframes csn-pulse-green {
+  0%, 100% { box-shadow: 0 0 6px rgba(34, 197, 94, 0.6); }
+  50% { box-shadow: 0 0 18px rgba(34, 197, 94, 1); }
+}
+
+.csn-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: #f1f5f9;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.csn-impact-badge {
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: 3px;
+  flex-shrink: 0;
+  transition: all 0.3s ease;
+}
+
+.csn-impact-badge.impacted {
+  background: rgba(239, 68, 68, 0.2);
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.4);
+}
+
+.csn-impact-badge.resolved {
+  background: rgba(34, 197, 94, 0.15);
+  color: #4ade80;
+  border: 1px solid rgba(34, 197, 94, 0.3);
+}
+
+.csn-impact-badge.healthy {
+  background: rgba(59, 130, 246, 0.1);
+  color: #60a5fa;
+  border: 1px solid rgba(59, 130, 246, 0.2);
+}
+
+/* ── Axis toggle bar ── */
+.csn-axis-bar {
+  display: flex;
+  gap: 2px;
+  background: #0a0f1a;
+  border: 1px solid #1e293b;
+  border-top: none;
+  padding: 4px;
+}
+
+.csn-axis-btn {
+  flex: 1;
+  padding: 4px 0;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #475569;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.18s ease;
+  line-height: 1;
+}
+
+.csn-axis-btn:hover {
+  color: #94a3b8;
+  background: #1e293b;
+  border-color: #334155;
+}
+
+.csn-axis-btn.active {
+  color: #38bdf8;
+  background: rgba(56, 189, 248, 0.1);
+  border-color: rgba(56, 189, 248, 0.3);
+}
+
+/* ── Cube: the preserve-3d container ── */
+.csn-cube-wrapper {
+  background: #0a0f1a;
+  border: 1px solid #1e293b;
+  border-top: none;
+  border-radius: 0 0 8px 8px;
+  overflow: hidden;
+  /* Height animated for collapse/expand */
+  transition: max-height 0.4s cubic-bezier(0.16, 1, 0.3, 1),
+              padding 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.csn-cube-wrapper.collapsed-wrapper {
+  max-height: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+.csn-cube-wrapper.expanded-wrapper {
+  max-height: 600px;
+  padding: 0;
+}
+
+.csn-cube {
+  transform-style: preserve-3d;
+  transform: rotateX(15deg) rotateY(-20deg);
+  transition: transform 0.5s ease;
+  position: relative;
+  /* In X-axis and Y-axis modes we need room around nodes */
+}
+
+/* ── Layers container — stacking context management ── */
+.csn-layers-container {
+  position: relative;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  transform-style: preserve-3d;
+  /* Minimum height to prevent collapse when layers float */
+  min-height: 80px;
+  transition: min-height 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.csn-layers-container.mode-z {
+  min-height: 220px;
+}
+.csn-layers-container.mode-y {
+  min-height: 360px;
+}
+.csn-layers-container.mode-x {
+  min-height: 180px;
+}
+.csn-layers-container.mode-collapsed {
+  min-height: 120px;
+}
+
+/* ── Single Layer card ── */
+.csn-layer {
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  border: 1px solid #1e293b;
+  border-radius: 6px;
+  overflow: hidden;
+  background: #0f172a;
+  /* Absolute positioning is applied via JS inline styles in X/Y/Z modes */
+  transition:
+    transform 0.5s cubic-bezier(0.16, 1, 0.3, 1),
+    border-color 0.3s ease,
+    box-shadow 0.3s ease,
+    opacity 0.35s ease;
+  will-change: transform;
+  width: 100%;
+}
+
+/* Collapsed: stack with small Z-depth offsets */
+.csn-layers-container.mode-collapsed .csn-layer:nth-child(1) {
+  transform: translateZ(0px) scale(1);
+  z-index: 3;
+  position: relative;
+  margin-bottom: 4px;
+}
+.csn-layers-container.mode-collapsed .csn-layer:nth-child(2) {
+  transform: translateZ(-8px) scale(0.98);
+  z-index: 2;
+  position: relative;
+  margin-bottom: 4px;
+  opacity: 0.85;
+}
+.csn-layers-container.mode-collapsed .csn-layer:nth-child(3) {
+  transform: translateZ(-16px) scale(0.96);
+  z-index: 1;
+  position: relative;
+  opacity: 0.7;
+}
+
+/* Z-Depth mode: fan out along depth axis */
+.csn-layers-container.mode-z {
+  align-items: center;
+}
+.csn-layers-container.mode-z .csn-layer {
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  width: auto;
+}
+.csn-layers-container.mode-z .csn-layer:nth-child(1) {
+  transform: translateZ(60px) scale(1.02);
+  top: 24px;
+  z-index: 3;
+}
+.csn-layers-container.mode-z .csn-layer:nth-child(2) {
+  transform: translateZ(0px) scale(1);
+  top: 80px;
+  z-index: 2;
+}
+.csn-layers-container.mode-z .csn-layer:nth-child(3) {
+  transform: translateZ(-60px) scale(0.97);
+  top: 136px;
+  z-index: 1;
+  opacity: 0.85;
+}
+
+/* Y-Axis mode: vertical stack spread */
+.csn-layers-container.mode-y {
+  align-items: center;
+}
+.csn-layers-container.mode-y .csn-layer {
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  width: auto;
+}
+.csn-layers-container.mode-y .csn-layer:nth-child(1) {
+  transform: translateY(-110px);
+  top: 160px;
+  z-index: 3;
+}
+.csn-layers-container.mode-y .csn-layer:nth-child(2) {
+  transform: translateY(0px);
+  top: 160px;
+  z-index: 2;
+}
+.csn-layers-container.mode-y .csn-layer:nth-child(3) {
+  transform: translateY(110px);
+  top: 160px;
+  z-index: 1;
+}
+
+/* X-Axis mode: horizontal flow — we need overflow visible */
+.csn-layers-container.mode-x {
+  overflow: visible;
+}
+.csn-layers-container.mode-x .csn-layer {
+  position: absolute;
+  width: 200px;
+  top: 16px;
+}
+.csn-layers-container.mode-x .csn-layer:nth-child(1) {
+  transform: translateX(-120px);
+  left: 50%;
+  margin-left: -100px;
+  z-index: 3;
+}
+.csn-layers-container.mode-x .csn-layer:nth-child(2) {
+  transform: translateX(0px);
+  left: 50%;
+  margin-left: -100px;
+  z-index: 2;
+}
+.csn-layers-container.mode-x .csn-layer:nth-child(3) {
+  transform: translateX(120px);
+  left: 50%;
+  margin-left: -100px;
+  z-index: 1;
+}
+
+/* ── Layer status borders ── */
+.csn-layer.layer-status-healthy {
+  border-color: #1e3a5f;
+  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.06);
+}
+.csn-layer.layer-status-impacted {
+  border-color: rgba(239, 68, 68, 0.5);
+  box-shadow: 0 2px 12px rgba(239, 68, 68, 0.15);
+}
+.csn-layer.layer-status-resolved {
+  border-color: rgba(34, 197, 94, 0.5);
+  box-shadow: 0 2px 12px rgba(34, 197, 94, 0.2);
+  animation: csn-resolve-wave 0.6s ease-out;
+}
+
+@keyframes csn-resolve-wave {
+  0% { box-shadow: 0 0 0 rgba(34, 197, 94, 0); }
+  40% { box-shadow: 0 0 24px rgba(34, 197, 94, 0.6); }
+  100% { box-shadow: 0 2px 12px rgba(34, 197, 94, 0.2); }
+}
+
+/* ── Layer header ── */
+.csn-layer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  background: #111827;
+  border-bottom: 1px solid #1e293b;
+}
+
+.csn-layer-title {
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #64748b;
+}
+
+.csn-layer-status-tag {
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 1px 5px;
+  border-radius: 2px;
+  transition: all 0.3s ease;
+}
+
+.csn-layer-status-tag.healthy {
+  background: rgba(59, 130, 246, 0.1);
+  color: #60a5fa;
+}
+.csn-layer-status-tag.impacted {
+  background: rgba(239, 68, 68, 0.15);
+  color: #f87171;
+}
+.csn-layer-status-tag.resolved {
+  background: rgba(34, 197, 94, 0.12);
+  color: #4ade80;
+}
+
+/* ── Line items inside a layer ── */
+.csn-line-list {
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.csn-line-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  border: 1px solid transparent;
+  cursor: default;
+  transition:
+    background 0.2s ease,
+    border-color 0.2s ease;
+  min-height: 26px;
+}
+
+.csn-line-item.error {
+  background: rgba(239, 68, 68, 0.08);
+  border-color: rgba(239, 68, 68, 0.25);
+  cursor: pointer;
+}
+
+.csn-line-item.error:hover {
+  background: rgba(239, 68, 68, 0.15);
+  border-color: rgba(239, 68, 68, 0.45);
+}
+
+.csn-line-item.resolved-line {
+  background: rgba(34, 197, 94, 0.06);
+  border-color: rgba(34, 197, 94, 0.2);
+  cursor: default;
+  animation: csn-line-resolve 0.5s ease-out;
+}
+
+@keyframes csn-line-resolve {
+  0% { background: rgba(34, 197, 94, 0.3); }
+  100% { background: rgba(34, 197, 94, 0.06); }
+}
+
+.csn-line-gutter {
+  font-size: 9px;
+  font-family: 'Fira Code', 'Cascadia Code', monospace;
+  color: #334155;
+  width: 18px;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+.csn-line-code {
+  font-size: 10px;
+  font-family: 'Fira Code', 'Cascadia Code', monospace;
+  color: #94a3b8;
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: color 0.3s ease;
+}
+
+.csn-line-item.error .csn-line-code {
+  color: #fca5a5;
+}
+
+.csn-line-item.resolved-line .csn-line-code {
+  color: #86efac;
+}
+
+/* Error squiggle underline on flagged lines */
+.csn-line-item.error .csn-line-code::after {
+  content: '';
+  display: block;
+  height: 2px;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='6' height='2'%3E%3Cpath d='M0 2 L2 0 L4 2 L6 0' stroke='%23ef4444' fill='none' stroke-width='1'/%3E%3C/svg%3E") repeat-x;
+  margin-top: 1px;
+}
+
+.csn-repair-icon {
+  font-size: 9px;
+  flex-shrink: 0;
+  opacity: 0.7;
+  transition: opacity 0.2s;
+}
+
+.csn-line-item.error:hover .csn-repair-icon {
+  opacity: 1;
+}
+
+/* ── Repairing spinner state ── */
+.csn-line-item.repairing {
+  background: rgba(251, 191, 36, 0.08);
+  border-color: rgba(251, 191, 36, 0.3);
+  animation: csn-repair-pulse 0.8s ease-in-out infinite;
+}
+
+@keyframes csn-repair-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+/* ── Cascading resolve pulse ── */
+@keyframes csn-cascade-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.5); }
+  70% { box-shadow: 0 0 0 12px rgba(34, 197, 94, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); }
+}
+
+.csn-layer.cascade-resolved {
+  animation: csn-cascade-pulse 0.8s ease-out;
+}
+
+/* ── Connector arrows between X-axis layers ── */
+.csn-layers-container.mode-x::before,
+.csn-layers-container.mode-x::after {
+  content: '→';
+  position: absolute;
+  top: 24px;
+  font-size: 18px;
+  color: #334155;
+  z-index: 10;
+  pointer-events: none;
+  transition: color 0.3s ease;
+}
+
+.csn-layers-container.mode-x::before {
+  left: calc(50% - 130px);
+}
+
+.csn-layers-container.mode-x::after {
+  left: calc(50% + 62px);
+}

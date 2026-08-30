@@ -1,20 +1,22 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-  import {
-    ReactFlow,
-    MiniMap,
-    Controls,
-    Background,
-    useNodesState,
-    useEdgesState,
-    addEdge,
-    MarkerType,
-    useReactFlow,
-    ReactFlowProvider,
-    Handle,
-    Position
-  } from '@xyflow/react';
+import {
+  ReactFlow,
+  MiniMap,
+  Controls,
+  Background,
+  useNodesState,
+  useEdgesState,
+  addEdge,
+  MarkerType,
+  useReactFlow,
+  ReactFlowProvider,
+  Handle,
+  Position
+} from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { Activity, Database, Server, Box, GitMerge, AlertCircle, Info, Zap, AlertTriangle, RefreshCw, Wrench } from 'lucide-react';
+import { Activity, Database, Server, Box, GitMerge, AlertCircle, Info, Zap, AlertTriangle, RefreshCw, Wrench, Layers, Monitor, Hexagon } from 'lucide-react';
+import CrossSectionNode from './components/CrossSectionNode';
+import PipelineScene3D from './components/PipelineScene3D';
 
 const getApiUrl = (endpoint) => {
   const baseUrl = import.meta.env.VITE_API_URL || '';
@@ -134,25 +136,43 @@ const nodeTypes = {
   service: CustomServiceNode,
   infrastructure: CustomInfraNode,
   queue: CustomInfraNode,
+  crossSection: CrossSectionNode,
 };
 
-  function FlowContent() {
-    const [nodes, setNodes, onNodesChange] = useNodesState([]);
-    const [edges, setEdges, onEdgesChange] = useEdgesState([]);
-    const [selectedNode, setSelectedNode] = useState(null);
-    const [graphData, setGraphData] = useState(null);
-    const [loading, setLoading] = useState(true);
-    const [backendStatus, setBackendStatus] = useState('connecting');
-  
-    const [simulationResult, setSimulationResult] = useState(null);
-    const [simulating, setSimulating] = useState(false);
-    const [repairData, setRepairData] = useState(null);
-    const [loadingRepair, setLoadingRepair] = useState(false);
-    const [repairPanelOpen, setRepairPanelOpen] = useState(false);
-    const [applyingPatch, setApplyingPatch] = useState(false);
-    const [applyResult, setApplyResult] = useState(null);
-    
-    const { fitView } = useReactFlow();
+function FlowContent() {
+  const [nodes, setNodes, onNodesChange] = useNodesState([]);
+  const [edges, setEdges, onEdgesChange] = useEdgesState([]);
+  const [selectedNode, setSelectedNode] = useState(null);
+  const [graphData, setGraphData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [backendStatus, setBackendStatus] = useState('connecting');
+
+  const [simulationResult, setSimulationResult] = useState(null);
+  const [simulating, setSimulating] = useState(false);
+  const [repairData, setRepairData] = useState(null);
+  const [loadingRepair, setLoadingRepair] = useState(false);
+  const [repairPanelOpen, setRepairPanelOpen] = useState(false);
+  const [applyingPatch, setApplyingPatch] = useState(false);
+  const [applyResult, setApplyResult] = useState(null);
+
+  /* ── CrossSection global axis mode ── */
+  const [csAxisMode, setCsAxisMode] = useState('collapsed');
+
+  /* ── Main View Mode ── */
+  const [viewMode, setViewMode] = useState('graph'); // 'graph' or '3d'
+
+  /* Sync global axis mode into all crossSection node data */
+  useEffect(() => {
+    setNodes((prev) =>
+      prev.map((n) =>
+        n.type === 'crossSection'
+          ? { ...n, data: { ...n.data, axisMode: csAxisMode } }
+          : n
+      )
+    );
+  }, [csAxisMode]);
+
+  const { fitView } = useReactFlow();
 
   useEffect(() => {
     const fetchGraph = async () => {
@@ -182,13 +202,25 @@ const nodeTypes = {
             id: node.id,
             type: node.type,
             position: { x, y },
-            data: { 
+            data: {
               label: node.name,
               isImpacted: false,
               isTarget: false,
-              ...node 
+              ...node
             }
           };
+        });
+
+        /* Add a CrossSection node anchored below the main graph */
+        rfNodes.push({
+          id: 'cross-section-auth',
+          type: 'crossSection',
+          position: { x: 100, y: 420 },
+          data: {
+            label: 'auth-service',
+            status: 'impacted',
+            impact: 'user_id → userId mismatch',
+          },
         });
 
         const rfEdges = data.edges.map(edge => {
@@ -515,6 +547,32 @@ const nodeTypes = {
             )}
   
             <div className="h-6 w-px bg-gray-800"></div>
+
+            {/* View Mode Toggle */}
+            <div className="flex items-center bg-gray-950 p-1 rounded-lg border border-gray-800">
+              <button
+                onClick={() => setViewMode('graph')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold uppercase tracking-wider transition ${
+                  viewMode === 'graph' 
+                    ? 'bg-gray-800 text-white shadow-sm' 
+                    : 'text-gray-500 hover:text-gray-300'
+                }`}
+              >
+                <Monitor size={14} /> Graph
+              </button>
+              <button
+                onClick={() => setViewMode('3d')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold uppercase tracking-wider transition ${
+                  viewMode === '3d' 
+                    ? 'bg-blue-600 text-white shadow-sm' 
+                    : 'text-gray-500 hover:text-gray-300'
+                }`}
+              >
+                <Hexagon size={14} /> 3D Pipeline
+              </button>
+            </div>
+
+            <div className="h-6 w-px bg-gray-800"></div>
   
             <div className="flex items-center gap-4 text-sm">
               <div className="flex items-center gap-2">
@@ -542,8 +600,37 @@ const nodeTypes = {
 
       {/* Main Content */}
       <div className="flex flex-1 overflow-hidden relative">
-        {/* Graph Canvas */}
-        <div className="flex-1 h-full bg-grid-pattern relative">
+        {viewMode === '3d' ? (
+          <PipelineScene3D />
+        ) : (
+          <>
+            {/* Graph Canvas */}
+            <div className="flex-1 h-full bg-grid-pattern relative">
+          {/* CrossSection global axis-mode toggle bar */}
+          {!loading && (
+            <div
+              className="absolute top-3 left-1/2 z-30 flex items-center gap-1 bg-gray-900/90 border border-gray-700 rounded-lg px-2 py-1.5 shadow-xl backdrop-blur-sm"
+              style={{ transform: 'translateX(-50%)' }}
+            >
+              <Layers size={12} className="text-sky-400 mr-1" />
+              <span className="text-[9px] font-bold uppercase tracking-widest text-gray-500 mr-2">Cross-Section</span>
+              {['collapsed', 'z', 'y', 'x'].map((m) => (
+                <button
+                  key={m}
+                  onClick={() => setCsAxisMode(m)}
+                  title={`Set all CrossSection nodes to ${m} axis`}
+                  className={`px-2.5 py-1 rounded text-[9px] font-bold uppercase tracking-wider transition-all ${
+                    csAxisMode === m
+                      ? 'bg-sky-500/20 text-sky-400 border border-sky-500/40'
+                      : 'text-gray-500 hover:text-gray-300 border border-transparent hover:border-gray-700'
+                  }`}
+                >
+                  {m === 'collapsed' ? '⊟ Collapse' : m === 'z' ? 'Z Depth' : m === 'y' ? 'Y Stack' : 'X Flow'}
+                </button>
+              ))}
+            </div>
+          )}
+
           {loading ? (
             <div className="absolute inset-0 flex items-center justify-center text-gray-400">
               <div className="flex flex-col items-center gap-3">
@@ -566,7 +653,7 @@ const nodeTypes = {
             >
               <Background color="#334155" gap={20} size={1} />
               <Controls position="top-right" className="bg-gray-800 border-gray-700 text-gray-300 fill-gray-300 shadow-xl" style={{ zIndex: 50 }} />
-              <MiniMap 
+              <MiniMap
                 nodeStrokeColor={(n) => {
                   if (n.type === 'service') return '#3b82f6';
                   return '#a855f7';
@@ -578,8 +665,6 @@ const nodeTypes = {
                 maskColor="rgba(15, 23, 42, 0.8)"
                 className="bg-gray-900 border border-gray-800"
               />
-              
-              {/* Removed absolute Legend overlay from here */}
             </ReactFlow>
           )}
         </div>
@@ -942,6 +1027,8 @@ const nodeTypes = {
               )}
             </div>
           </div>
+        )}
+          </>
         )}
       </div>
     </div>
