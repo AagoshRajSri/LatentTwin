@@ -1,8 +1,6 @@
 # <img src="client/public/logo.png" alt="LatentTwin Logo" width="40" height="40" align="center" /> LatentTwin
 
-> **AI-Powered Architectural Dependency Graph & Autonomous Repair Engine**
-
-LatentTwin transforms complex software repositories into interactive 2D & 3D architecture maps, automatically detects system bugs using LLMs, and provides single-click AI code fixes.
+> LatentTwin converts LatentGraph’s JSON context graph into an interactive, visual 3D/2D "Living Digital Twin" of your application architecture.
 
 ---
 
