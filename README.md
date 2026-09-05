@@ -1,4 +1,4 @@
-# LatentTwin
+# <img src="./logo.png" alt="LatentTwin Logo" width="36" height="36" align="center" /> LatentTwin
 
 Digital twin architectural dependency graph engine for distributed microservice systems.
 

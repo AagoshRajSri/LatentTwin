@@ -163,7 +163,7 @@ function runValidation(workspacePath, targetFilePath) {
     return {
         success: true,
         commandRan: testCommand,
-        cwd: path.relative(workspacePath, validationCwd),
+        cwd: path.relative(workspacePath, validationCwd).replace(/\\/g, '/'),
         stdout: output,
         stderr: '',
         exitCode: 0
@@ -172,7 +172,7 @@ function runValidation(workspacePath, targetFilePath) {
     return {
         success: false,
         commandRan: testCommand,
-        cwd: path.relative(workspacePath, validationCwd),
+        cwd: path.relative(workspacePath, validationCwd).replace(/\\/g, '/'),
         stdout: error.stdout ? error.stdout.toString() : '',
         stderr: error.stderr ? error.stderr.toString() : error.message,
         exitCode: error.status || 1

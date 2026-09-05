@@ -3,3 +3,8 @@ latentcode.json
 *.log
 .DS_Store
 demo-system/queue-data/
+.env
+.env.local
+.cache/
+dist/
+

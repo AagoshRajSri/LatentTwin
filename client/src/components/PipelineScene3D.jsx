@@ -1,11 +1,13 @@
-import React, { useEffect, useRef, useState, useCallback } from "react";
+import React, { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import * as THREE from "three";
 
 /* ────────────────────────────────────────────────────────────────────────
    COLORS
    ──────────────────────────────────────────────────────────────────────── */
 const HEALTHY   = 0x6fd8ff; // brighter cyan — reads clearly against the dark floor
-const ERROR     = 0xff4d4f;
+const ERROR     = 0xff4d4f; // red for root cause / impacted
+const DOWNSTREAM = 0xfb923c; // amber/orange for downstream affected
+const CONTEXT   = 0x94a3b8; // slate/gray for context neighbors
 const FIXED     = 0x35e08a;
 const NEUTRAL_EDGE = 0x3a4468;
 const BG_COLOR  = 0x05060a;
@@ -146,7 +148,7 @@ function makeLabelTexture(label, glyph, accentHex) {
 /* ────────────────────────────────────────────────────────────────────────
    MAIN COMPONENT
    ──────────────────────────────────────────────────────────────────────── */
-export default function PipelineScene3D() {
+export default function PipelineScene3D({ analysisData }) {
   const mountRef = useRef(null);
   const overlayRef = useRef(null);
   const orbitApiRef = useRef(null);
@@ -161,6 +163,99 @@ export default function PipelineScene3D() {
   activeRef.current = activeId;
   resolvedRef.current = resolved;
   microRef.current = microFile;
+
+  // Build dynamic nodes from analysis data, or fallback to demo NODES
+  const sceneNodes = useMemo(() => {
+    if (!analysisData || !analysisData.nodes || analysisData.nodes.length === 0) {
+      return NODES;
+    }
+
+    // Group nodes by tier dynamically
+    const tierGroups = new Map();
+    analysisData.nodes.forEach((node) => {
+      const tier = node.tier || 'other';
+      if (!tierGroups.has(tier)) tierGroups.set(tier, []);
+      tierGroups.get(tier).push(node);
+    });
+
+    const tierOrder = ['api', 'logic', 'data', 'other'];
+    const sortedTiers = [...tierGroups.entries()].sort(([a], [b]) => {
+      const ai = tierOrder.indexOf(a) === -1 ? 99 : tierOrder.indexOf(a);
+      const bi = tierOrder.indexOf(b) === -1 ? 99 : tierOrder.indexOf(b);
+      return ai - bi;
+    });
+
+    const tierMeta = {
+      api:   { label: 'API / Ingress',    glyph: 'server',   accent: 0xf0a63b, tint: 0xf3ecd8 },
+      logic: { label: 'Business Logic',   glyph: 'grid',     accent: 0x6fd8ff, tint: 0xdfe6f5 },
+      data:  { label: 'Data / State',     glyph: 'database', accent: 0xa78bfa, tint: 0xdfe6f5 },
+      other: { label: 'Other',            glyph: 'grid',     accent: 0x6fd8ff, tint: 0xdfe6f5 },
+    };
+
+    // Spread blocks evenly: 1 block centered, 2 side-by-side, 3+ spread out
+    const count = sortedTiers.length;
+    const spacing = 6.4;
+    const startX = -((count - 1) / 2) * spacing;
+
+    const blocks = sortedTiers.map(([tierKey, tierNodes], i) => {
+      const meta = tierMeta[tierKey] ?? tierMeta['other'];
+      const hasError = tierNodes.some((n) => n.status === 'impacted');
+
+      const files = tierNodes.map((node) => {
+        const lines = node.lines || [];
+        const errLineIdx = lines.findIndex((l) => l.error);
+        return {
+          id: node.id,
+          name: (node.file || node.id).split('/').pop(),
+          isErr: node.status === 'impacted' || errLineIdx !== -1,
+          status: node.status || 'healthy',
+          code: lines.map((l) => l.code || l.before || ''),
+          lineIdx: errLineIdx,
+          broken: errLineIdx !== -1 ? (lines[errLineIdx].before || lines[errLineIdx].code || '') : null,
+          brokenNote: errLineIdx !== -1 ? (lines[errLineIdx].hint || 'Bug detected') : '',
+          fixed: errLineIdx !== -1 ? (lines[errLineIdx].after || '') : '',
+          fixedNote: 'Resolved',
+        };
+      });
+
+      // Distribute into 3 visual tiers inside each block
+      const t1 = [], t2 = [], t3 = [];
+      files.forEach((f, fi) => {
+        if (fi % 3 === 0) t1.push(f);
+        else if (fi % 3 === 1) t2.push(f);
+        else t3.push(f);
+      });
+
+      // Internal edges: only edges where both source and target are in this block
+      const blockIds = new Set(files.map((f) => f.id));
+      const internalEdges = (analysisData.edges || [])
+        .filter((e) => blockIds.has(e.source) && blockIds.has(e.target))
+        .map((e) => [e.source, e.target]);
+
+      return {
+        id: tierKey,
+        label: meta.label,
+        glyph: meta.glyph,
+        tint: meta.tint,
+        accent: meta.accent,
+        x: startX + i * spacing,
+        hasError,
+        files,
+        tiers: [
+          { name: 'Layer 1', files: t1 },
+          { name: 'Layer 2', files: t2 },
+          { name: 'Layer 3', files: t3 },
+        ],
+        edges: internalEdges,
+      };
+    });
+
+    return blocks;
+  }, [analysisData]);
+
+  // Derived lookups for the overlay
+  const NODE_LABEL = useMemo(() => Object.fromEntries(sceneNodes.map((n) => [n.id, n.label])), [sceneNodes]);
+  const NODE_ACCENT_CSS = useMemo(() => Object.fromEntries(sceneNodes.map((n) => [n.id, "#" + n.accent.toString(16).padStart(6, "0")])), [sceneNodes]);
 
   const repair = useCallback(() => setResolved(true), []);
   const reset = useCallback(() => { setResolved(false); setMicroFile(null); }, []);
@@ -186,8 +281,7 @@ export default function PipelineScene3D() {
     renderer.setSize(width, height);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.setClearColor(BG_COLOR, 1);
-    if ("outputColorSpace" in renderer) renderer.outputColorSpace = THREE.SRGBColorSpace;
-    else renderer.outputEncoding = THREE.sRGBEncoding; // eslint-disable-line deprecation/deprecation
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.05;
     mount.appendChild(renderer.domElement);
@@ -210,7 +304,7 @@ export default function PipelineScene3D() {
     const nodeRig = [];
     const fileMeshMap = new Map(); // fileId -> { mesh, node }
 
-    NODES.forEach((n) => {
+    sceneNodes.forEach((n) => {
       const group = new THREE.Group();
       group.position.set(n.x, 0, 0);
       scene.add(group);
@@ -252,20 +346,27 @@ export default function PipelineScene3D() {
           filePos.set(f.id, pos);
           fileMeta.set(f.id, { ...f, tierName: tier.name });
 
-          const size = f.isErr ? 0.24 : 0.19;
+          const isErr = f.status === 'impacted';
+          const isDownstream = f.status === 'affected-downstream';
+          const isContext = f.status === 'context';
+
+          const chipColor = isErr ? ERROR : isDownstream ? DOWNSTREAM : isContext ? CONTEXT : 0x54608a;
+          const hasEmissive = isErr || isDownstream;
+
+          const size = isErr ? 0.24 : isDownstream ? 0.22 : 0.19;
           const mat = new THREE.MeshStandardMaterial({
-            color: f.isErr ? ERROR : 0x54608a,
-            emissive: f.isErr ? new THREE.Color(ERROR) : new THREE.Color(0x000000),
-            emissiveIntensity: f.isErr ? 0.85 : 0,
+            color: chipColor,
+            emissive: hasEmissive ? new THREE.Color(chipColor) : new THREE.Color(0x000000),
+            emissiveIntensity: isErr ? 0.85 : isDownstream ? 0.6 : 0,
             roughness: 0.35, metalness: 0.5,
           });
           const mesh = new THREE.Mesh(new THREE.BoxGeometry(size, size * 0.55, size), mat);
           const chipEdge = new THREE.LineSegments(
             new THREE.EdgesGeometry(mesh.geometry),
-            new THREE.LineBasicMaterial({ color: f.isErr ? 0xffb3b4 : 0x8fa0c8 })
+            new THREE.LineBasicMaterial({ color: isErr ? 0xffb3b4 : isDownstream ? 0xfed7aa : 0x8fa0c8 })
           );
           mesh.add(chipEdge);
-          mesh.userData = { fileId: f.id, isErr: !!f.isErr, nodeId: n.id, exploded: pos };
+          mesh.userData = { fileId: f.id, isErr: !!isErr, nodeId: n.id, exploded: pos };
           mesh.scale.setScalar(0.001);
           group.add(mesh);
           chipMeshes.push(mesh);
@@ -279,18 +380,22 @@ export default function PipelineScene3D() {
       n.edges.forEach(([fromId, toId]) => {
         const a = fileMeta.get(fromId), b = fileMeta.get(toId);
         const pa = filePos.get(fromId), pb = filePos.get(toId);
-        const forward = !!a.isErr;
-        const touches = !!a.isErr || !!b.isErr;
+        const forward = a?.isErr;
+        
+        const isImpactedWire = a?.status === 'impacted' || b?.status === 'impacted';
+        const isDownstreamWire = !isImpactedWire && (a?.status === 'affected-downstream' || b?.status === 'affected-downstream');
+        const wireColor = isImpactedWire ? ERROR : isDownstreamWire ? DOWNSTREAM : HEALTHY;
+
         const lift = 0.22 + seeded((fromId + toId).length * 17 + fromId.charCodeAt(0)) * 0.3;
         const curve = new THREE.CatmullRomCurve3([
           pa.clone(),
           pa.clone().lerp(pb, 0.5).add(new THREE.Vector3(0, lift, 0)),
           pb.clone(),
         ]);
-        const geo = new THREE.TubeGeometry(curve, 20, touches ? 0.026 : 0.016, 6, false);
-        const mat = new THREE.MeshBasicMaterial({ color: touches ? ERROR : HEALTHY, transparent: true, opacity: 0 });
+        const geo = new THREE.TubeGeometry(curve, 20, (isImpactedWire || isDownstreamWire) ? 0.026 : 0.016, 6, false);
+        const mat = new THREE.MeshBasicMaterial({ color: wireColor, transparent: true, opacity: 0 });
         const mesh = new THREE.Mesh(geo, mat);
-        mesh.userData = { involvesErr: touches, kind: "wire" };
+        mesh.userData = { involvesErr: isImpactedWire || isDownstreamWire, kind: "wire" };
         group.add(mesh);
         wireMeshes.push(mesh);
         if (forward) forwardErrorWire = { curve, mesh, fromId, toId };
@@ -325,8 +430,8 @@ export default function PipelineScene3D() {
 
     /* ── connecting tubes between nodes ─────────────────────── */
     const linkMeshes = [];
-    for (let i = 0; i < NODES.length - 1; i++) {
-      const from = NODES[i], to = NODES[i + 1];
+    for (let i = 0; i < sceneNodes.length - 1; i++) {
+      const from = sceneNodes[i], to = sceneNodes[i + 1];
       const p0 = new THREE.Vector3(from.x + 1.35, -0.35, 0);
       const p3 = new THREE.Vector3(to.x - 1.35, -0.35, 0);
       const mid = p0.clone().lerp(p3, 0.5);
@@ -335,7 +440,7 @@ export default function PipelineScene3D() {
         p3.clone().lerp(mid, 0.5).add(new THREE.Vector3(0, 0.5, 0)), p3,
       ]);
       const geo = new THREE.TubeGeometry(curve, 40, 0.05, 8, false);
-      const isErrLink = i === 1;
+      const isErrLink = from.hasError || to.hasError;
       const mat = new THREE.MeshBasicMaterial({ color: isErrLink ? ERROR : HEALTHY });
       const mesh = new THREE.Mesh(geo, mat);
       mesh.userData = { kind: "link", isErrLink, nodeA: from.id, nodeB: to.id };
@@ -361,7 +466,7 @@ export default function PipelineScene3D() {
       r.chipMeshes.forEach((m) => {
         const el = document.createElement("div");
         el.className = "pl3d-chip";
-        el.textContent = fileNameOf(m.userData.fileId);
+        el.textContent = fileNameOf(sceneNodes, m.userData.fileId);
         overlay.appendChild(el);
         chipLabels.push({ el, mesh: m });
       });
@@ -496,7 +601,7 @@ export default function PipelineScene3D() {
         if (chipHits.length) {
           const hit = chipHits[0].object;
           if (hit.userData.isErr && !resolvedRef.current) {
-            const meta = fileMetaLookup(NODES, hit.userData.fileId);
+            const meta = fileMetaLookup(sceneNodes, hit.userData.fileId);
             setMicroFile({ ...meta, nodeId: hit.userData.nodeId });
           }
           return;
@@ -729,7 +834,7 @@ export default function PipelineScene3D() {
       renderer.dispose();
       if (mount.contains(renderer.domElement)) mount.removeChild(renderer.domElement);
     };
-  }, [repair]);
+  }, [repair, sceneNodes]);
 
   return (
     <div style={{ position: "relative", width: "100%", height: "100%", minHeight: 560, background: "#05060a", borderRadius: 16, overflow: "hidden" }}>
@@ -801,12 +906,16 @@ export default function PipelineScene3D() {
             })}
           </div>
 
-          <div style={{ fontSize: 11, marginTop: 8, color: resolved ? "#35e08a" : "#ff8788", fontFamily: "ui-monospace, monospace" }}>
-            {resolved ? `✓ ${microFile.fixedNote}` : `✕ ${microFile.brokenNote}`}
-          </div>
+          {microFile.isErr && (
+            <>
+              <div style={{ fontSize: 11, marginTop: 8, color: resolved ? "#35e08a" : "#ff8788", fontFamily: "ui-monospace, monospace" }}>
+                {resolved ? `✓ ${microFile.fixedNote}` : `✕ ${microFile.brokenNote}`}
+              </div>
 
-          {!resolved && (
-            <button onClick={repair} style={patchBtnStyle}>Apply patch →</button>
+              {!resolved && (
+                <button onClick={repair} style={patchBtnStyle}>Apply patch →</button>
+              )}
+            </>
           )}
         </div>
       )}
@@ -814,9 +923,9 @@ export default function PipelineScene3D() {
   );
 }
 
-/* helpers that read from static NODES/nodeRig without needing extra state plumbing */
-function fileNameOf(fileId) {
-  for (const n of NODES) for (const tier of n.tiers) for (const f of tier.files) if (f.id === fileId) return f.name;
+/* helpers that read from dynamic nodes without needing extra state plumbing */
+function fileNameOf(nodes, fileId) {
+  for (const n of nodes) for (const tier of n.tiers) for (const f of tier.files) if (f.id === fileId) return f.name;
   return fileId;
 }
 function fileMetaLookup(nodes, fileId) {

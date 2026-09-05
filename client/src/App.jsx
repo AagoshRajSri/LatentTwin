@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   ReactFlow,
   MiniMap,
@@ -14,9 +15,14 @@ import {
   Position
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { Activity, Database, Server, Box, GitMerge, AlertCircle, Info, Zap, AlertTriangle, RefreshCw, Wrench, Layers, Monitor, Hexagon } from 'lucide-react';
+import { Activity, Database, Server, Box, GitMerge, AlertCircle, Info, Zap, AlertTriangle, RefreshCw, Wrench, Layers, Monitor, Hexagon, Lock, Search, Download, X, FlaskConical } from 'lucide-react';
 import CrossSectionNode from './components/CrossSectionNode';
 import PipelineScene3D from './components/PipelineScene3D';
+import ParticleWave from './components/ParticleWave';
+import { layoutGraph } from './lib/layoutGraph';
+import { toReactFlowGraph } from './lib/toReactFlowGraph';
+import { DEMO_NODES, DEMO_EDGES, DEMO_META } from './lib/demoData.js';
+import { exportJSON, exportMarkdown } from './lib/exportReport.js';
 
 const getApiUrl = (endpoint) => {
   const baseUrl = import.meta.env.VITE_API_URL || '';
@@ -27,6 +33,46 @@ const getApiUrl = (endpoint) => {
   const cleanEndpoint = endpoint.startsWith('/') ? endpoint.slice(1) : endpoint;
   return `${cleanBase}/${cleanEndpoint}`;
 };
+
+const getAnalysisApiUrl = (endpoint) => {
+  const baseUrl = import.meta.env.VITE_ANALYSIS_API_URL || 'http://localhost:3001';
+  const cleanBase = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
+  const cleanEndpoint = endpoint.startsWith('/') ? endpoint.slice(1) : endpoint;
+  return `${cleanBase}/${cleanEndpoint}`;
+};
+
+function HighlightText({ text, search }) {
+  if (!text || typeof text !== 'string') return text || null;
+  if (!search || !search.trim()) return text;
+
+  const query = search.trim();
+  const escapedQuery = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const parts = text.split(new RegExp(`(${escapedQuery})`, 'gi'));
+
+  return (
+    <>
+      {parts.map((part, index) =>
+        part.toLowerCase() === query.toLowerCase() ? (
+          <mark
+            key={index}
+            style={{
+              backgroundColor: '#facc15',
+              color: '#09090b',
+              padding: '0 2px',
+              borderRadius: '2px',
+              fontWeight: 'bold',
+              boxShadow: '0 0 6px rgba(250, 204, 21, 0.6)'
+            }}
+          >
+            {part}
+          </mark>
+        ) : (
+          part
+        )
+      )}
+    </>
+  );
+}
 
 const CustomServiceNode = ({ data, selected, id }) => {
   const isImpacted = data.isImpacted;
@@ -60,7 +106,7 @@ const CustomServiceNode = ({ data, selected, id }) => {
         </div>
         <div className="flex flex-col">
           <span className="font-semibold text-sm flex items-center gap-2 tracking-wide">
-            {data.label}
+            <HighlightText text={data.label} search={data.searchTerm} />
             {isImpacted && !isTarget && (
               <span className="flex h-1.5 w-1.5 rounded-full bg-red-500 animate-pulse" />
             )}
@@ -112,13 +158,13 @@ const CustomInfraNode = ({ data, selected, id }) => {
         </div>
         <div className="flex flex-col">
           <span className="font-semibold text-sm flex items-center gap-2 tracking-wide">
-            {data.label}
+            <HighlightText text={data.label} search={data.searchTerm} />
             {isImpacted && !isTarget && (
               <span className="flex h-1.5 w-1.5 rounded-full bg-red-500 animate-pulse" />
             )}
           </span>
           <span className="text-[10px] uppercase font-bold tracking-widest text-gray-500 mt-0.5">
-            {isTarget ? 'Target Queue' : isImpacted ? 'Impacted Queue' : 'Infrastructure'}
+            {isTarget ? 'Target Infrastructure' : isImpacted ? 'Impacted Infrastructure' : 'Infrastructure'}
           </span>
         </div>
       </div>
@@ -145,6 +191,7 @@ function FlowContent() {
   const [selectedNode, setSelectedNode] = useState(null);
   const [graphData, setGraphData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const navigate = useNavigate();
   const [backendStatus, setBackendStatus] = useState('connecting');
 
   const [simulationResult, setSimulationResult] = useState(null);
@@ -154,6 +201,18 @@ function FlowContent() {
   const [repairPanelOpen, setRepairPanelOpen] = useState(false);
   const [applyingPatch, setApplyingPatch] = useState(false);
   const [applyResult, setApplyResult] = useState(null);
+  const [fixingNode, setFixingNode] = useState(false);
+  const [fixResult, setFixResult] = useState(null);
+
+  /* ── Repo Analysis State ── */
+  const [repoUrl, setRepoUrl] = useState('https://github.com/expressjs/morgan');
+  const [analyzing, setAnalyzing] = useState(false);
+  const [analyzeStage, setAnalyzeStage] = useState('');
+  const [analyzePct, setAnalyzePct] = useState(0);
+  const [showFullGraph, setShowFullGraph] = useState(false);
+  const rawAnalysisRef = React.useRef({ nodes: [], edges: [], positions: {}, impacted: new Set() });
+  // analysisSnapshot is a real React state copy — changes trigger re-renders in PipelineScene3D
+  const [analysisSnapshot, setAnalysisSnapshot] = React.useState(null);
 
   /* ── CrossSection global axis mode ── */
   const [csAxisMode, setCsAxisMode] = useState('collapsed');
@@ -161,23 +220,75 @@ function FlowContent() {
   /* ── Main View Mode ── */
   const [viewMode, setViewMode] = useState('graph'); // 'graph' or '3d'
 
+  /* ── Graph Search ── */
+  const [graphSearch, setGraphSearch] = useState('');
+  const searchInputRef = useRef(null);
+
+  /* ── Demo mode ── */
+  const [isDemo, setIsDemo] = useState(false);
+
+  /* ── Mascot Welcome Video (First visit of the day or cache cleared) ── */
+  const [showMascot, setShowMascot] = useState(false);
+
+  useEffect(() => {
+    try {
+      const lastVisit = localStorage.getItem('latenttwin_last_visit');
+      const today = new Date().toDateString();
+      if (!lastVisit || lastVisit !== today) {
+        setShowMascot(true);
+        localStorage.setItem('latenttwin_last_visit', today);
+      }
+    } catch (err) {
+      console.warn('localStorage not accessible:', err);
+    }
+  }, []);
+
+  const syncReactFlow = useCallback(() => {
+    const raw = rawAnalysisRef.current;
+    if (raw.nodes.length === 0) return;
+    const { rfNodes, rfEdges } = toReactFlowGraph(
+      raw.nodes, raw.edges, raw.positions, csAxisMode, raw.impacted, showFullGraph
+    );
+    setNodes(rfNodes);
+    setEdges(rfEdges);
+  }, [csAxisMode, showFullGraph, setNodes, setEdges]);
+
   /* Sync global axis mode into all crossSection node data */
   useEffect(() => {
-    setNodes((prev) =>
-      prev.map((n) =>
-        n.type === 'crossSection'
-          ? { ...n, data: { ...n.data, axisMode: csAxisMode } }
-          : n
-      )
-    );
-  }, [csAxisMode]);
+    // We can just call syncReactFlow if raw data exists, else fallback to standard
+    if (rawAnalysisRef.current.nodes.length > 0) {
+      syncReactFlow();
+    } else {
+      setNodes((prev) =>
+        prev.map((n) =>
+          n.type === 'crossSection'
+            ? { ...n, data: { ...n.data, axisMode: csAxisMode } }
+            : n
+        )
+      );
+    }
+  }, [csAxisMode, showFullGraph, syncReactFlow]);
 
   const { fitView } = useReactFlow();
+
+  /* ── Navigate to impacted nodes ── */
+  const fitImpacted = useCallback(() => {
+    const raw = rawAnalysisRef.current;
+    const impactedIds = [...raw.impacted];
+    if (impactedIds.length > 0) {
+      fitView({ duration: 700, padding: 0.3, nodes: impactedIds.map(id => ({ id })) });
+    } else {
+      fitView({ duration: 700, padding: 0.15 });
+    }
+  }, [fitView]);
 
   useEffect(() => {
     const fetchGraph = async () => {
       try {
-        const response = await fetch(getApiUrl('/api/graph'));
+        const [response] = await Promise.all([
+          fetch(getApiUrl('/api/graph')),
+          new Promise(r => setTimeout(r, 1200)) // ensure cool loading plays
+        ]);
         if (!response.ok) throw new Error('Failed to fetch');
         const data = await response.json();
         setGraphData(data);
@@ -260,18 +371,229 @@ function FlowContent() {
     fetchGraph();
   }, []);
 
+  const handleAnalyzeRepo = async () => {
+    if (!repoUrl) return;
+    setIsDemo(false);
+    setAnalyzing(true);
+    setAnalyzeStage('Starting...');
+    setAnalyzePct(0);
+    try {
+      const response = await fetch(getAnalysisApiUrl('/analyze'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ repoUrl, bugInput: { type: 'fullScan' } })
+      });
+      if (!response.ok) throw new Error('Failed to start analysis');
+      const { jobId } = await response.json();
+
+      const eventSource = new EventSource(getAnalysisApiUrl(`/analyze/${jobId}/events`));
+
+      eventSource.addEventListener('stage', (e) => {
+        const eventData = JSON.parse(e.data);
+        setAnalyzeStage(eventData.stage);
+        setAnalyzePct(eventData.pct);
+
+        if (eventData.stage === 'graphReady' && eventData.graph) {
+          const raw = rawAnalysisRef.current;
+          raw.nodes = eventData.graph.nodes;
+          raw.edges = eventData.graph.edges;
+          raw.positions = layoutGraph(raw.nodes, raw.edges);
+          setAnalysisSnapshot({ nodes: raw.nodes, edges: raw.edges, impacted: raw.impacted });
+          syncReactFlow();
+          setTimeout(() => fitView({ duration: 800, padding: 0.2 }), 100);
+        } else if (eventData.stage === 'tiersReady' && eventData.graph?.tiers) {
+          const tierMap = new Map(eventData.graph.tiers);
+          const raw = rawAnalysisRef.current;
+          raw.nodes = raw.nodes.map(n => ({ ...n, tier: tierMap.get(n.file) || n.tier }));
+          setAnalysisSnapshot({ nodes: raw.nodes, edges: raw.edges, impacted: raw.impacted });
+          syncReactFlow();
+        }
+      });
+
+      eventSource.addEventListener('done', async (e) => {
+        eventSource.close();
+        const res = await fetch(getAnalysisApiUrl(`/analyze/${jobId}/result`));
+        const data = await res.json();
+
+        const raw = rawAnalysisRef.current;
+        raw.nodes = data.nodes;
+        raw.edges = data.edges;
+        raw.impacted = new Set(data.nodes.filter(n => n.status === 'impacted').map(n => n.id));
+        raw.positions = layoutGraph(raw.nodes, raw.edges);
+
+        setAnalysisSnapshot({ nodes: raw.nodes, edges: raw.edges, impacted: raw.impacted });
+        syncReactFlow();
+        setAnalyzing(false);
+        setTimeout(() => fitView({ duration: 800, padding: 0.2 }), 200);
+      });
+
+      eventSource.addEventListener('error', (e) => {
+        eventSource.close();
+        setAnalyzing(false);
+        try {
+          const eventData = JSON.parse(e.data);
+          const msg = eventData.message || '';
+          // Auth/rate-limit errors — show a clear actionable message, NOT a premium redirect
+          if (msg.includes('rate limit') || msg.includes('403') || msg.includes('401') || msg.includes('authentication failed')) {
+            alert('GitHub API error: ' + msg);
+          // Large-repo errors → premium gate
+          } else if (
+            msg.includes('exceeds the configured limit') ||
+            msg.includes('too large') ||
+            msg.includes('local Git cloning') ||
+            msg.includes('Premium Subscription Required')
+          ) {
+            navigate('/premium?feature=Large+Repository+Support');
+          } else {
+            alert('Analysis error: ' + msg);
+          }
+        } catch {
+          // connection error (onerror), not a payload error
+        }
+      });
+
+      eventSource.onerror = () => {
+        eventSource.close();
+        setAnalyzing(false);
+      };
+    } catch (e) {
+      console.error(e);
+      setAnalyzing(false);
+      alert('Could not start analysis');
+    }
+  };
+
+  /* ── Feature C: Demo Mode ── */
+  const loadDemo = useCallback(() => {
+    const raw = rawAnalysisRef.current;
+    raw.nodes = DEMO_NODES;
+    raw.edges = DEMO_EDGES;
+    raw.impacted = new Set(DEMO_NODES.filter(n => n.status === 'impacted').map(n => n.id));
+    raw.positions = layoutGraph(DEMO_NODES, DEMO_EDGES);
+
+    setAnalysisSnapshot({ nodes: raw.nodes, edges: raw.edges, impacted: raw.impacted });
+    syncReactFlow();
+    setIsDemo(true);
+    setGraphSearch('');
+    setTimeout(() => fitView({ duration: 800, padding: 0.2 }), 200);
+  }, [syncReactFlow, fitView]);
+
   const handleSimulateBreak = async () => {
     setSimulating(true);
     setRepairPanelOpen(false);
     setRepairData(null);
+
+    // In demo mode, run purely client-side — no API call needed
+    if (isDemo) {
+      // The demo nodes that are broken / downstream
+      const affectedIds = [
+        'auth-service/index.ts',
+        'event-queue/queue.ts',
+        'event-queue/schema.ts',
+        'worker-service/processor.ts',
+      ];
+      const targetId = 'auth-service/index.ts';
+      const pathNodes = [
+        'auth-service/index.ts',
+        'event-queue/queue.ts',
+        'worker-service/processor.ts',
+      ];
+
+      const demoSimResult = {
+        target: targetId,
+        affectedNodes: affectedIds,
+        dependencyPath: pathNodes,
+        relevantInvariants: [
+          { pr: 'PR#42', description: 'Field renames must propagate to all consumers before merge.' },
+          { pr: 'PR#61', description: 'Event schema types must match producer payload shape.' },
+        ],
+      };
+      setSimulationResult(demoSimResult);
+
+      const affectedSet = new Set(affectedIds);
+      const pathEdgeSet = new Set();
+      for (let i = 0; i < pathNodes.length - 1; i++) {
+        pathEdgeSet.add(`${pathNodes[i]}->${pathNodes[i + 1]}`);
+      }
+
+      // Phase 1: Mark affected nodes red / open in Z-depth
+      setNodes(prevNodes =>
+        prevNodes.map(node => ({
+          ...node,
+          zIndex: affectedSet.has(node.id) ? 20 : node.zIndex ?? 0,
+          data: {
+            ...node.data,
+            status: affectedSet.has(node.id)
+              ? (node.id === targetId ? 'impacted' : 'affected-downstream')
+              : node.data.status,
+            axisMode: affectedSet.has(node.id) ? 'z' : node.data.axisMode,
+          },
+        }))
+      );
+
+      // Highlight the blast-radius edges red
+      setEdges(prevEdges =>
+        prevEdges.map(edge => {
+          const isBlastPath = pathEdgeSet.has(edge.id);
+          return isBlastPath
+            ? { ...edge, animated: true, style: { stroke: '#ef4444', strokeWidth: 3.5 }, markerEnd: { type: MarkerType.ArrowClosed, color: '#ef4444' } }
+            : edge;
+        })
+      );
+
+      setTimeout(() => fitView({ padding: 0.2, duration: 800, nodes: pathNodes.map(id => ({ id })) }), 150);
+
+      // Phase 2 (auto-repair): after 2.8s, resolve all broken nodes one-by-one
+      setTimeout(() => {
+        // Mark all affected nodes as resolved
+        setNodes(prevNodes =>
+          prevNodes.map(node => {
+            if (!affectedSet.has(node.id)) return node;
+            return {
+              ...node,
+              zIndex: 20,
+              data: {
+                ...node.data,
+                status: 'resolved',
+                axisMode: 'z',
+                // Mark all error lines as resolved inside each card
+                layers: node.data.layers?.map(layer => ({
+                  ...layer,
+                  lines: layer.lines?.map(line => ({
+                    ...line,
+                    status: line.error ? 'resolved' : line.status,
+                    error: false,
+                  })),
+                })),
+              },
+            };
+          })
+        );
+        // Turn blast-radius edges green
+        setEdges(prevEdges =>
+          prevEdges.map(edge => {
+            const wasBlastPath = pathEdgeSet.has(edge.id);
+            return wasBlastPath
+              ? { ...edge, animated: true, style: { stroke: '#34d399', strokeWidth: 2.5 }, markerEnd: { type: MarkerType.ArrowClosed, color: '#34d399' } }
+              : edge;
+          })
+        );
+        // Mark the overall repair as successful
+        setApplyResult({ status: 'SYSTEM HEALED', output: 'All field references updated. Tests passing.' });
+        setSimulationResult(null);
+        setTimeout(() => fitView({ padding: 0.2, duration: 800 }), 150);
+      }, 2800);
+
+      setSimulating(false);
+      return;
+    }
+
+    // Non-demo: call real API
     try {
       const response = await fetch(getApiUrl('/api/simulate-break'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          target: 'auth-service',
-          change: 'rename user_id to userId'
-        })
+        body: JSON.stringify({ target: 'auth-service', change: 'rename user_id to userId' })
       });
       if (!response.ok) throw new Error('Simulation failed');
       const data = await response.json();
@@ -279,60 +601,26 @@ function FlowContent() {
 
       const affectedSet = new Set(data.affectedNodes || []);
       const pathNodes = data.dependencyPath || [];
-
-      // Create a set of edges along the path
       const pathEdgeSet = new Set();
       for (let i = 0; i < pathNodes.length - 1; i++) {
-        pathEdgeSet.add(`${pathNodes[i]}-${pathNodes[i+1]}`);
+        pathEdgeSet.add(`${pathNodes[i]}->${pathNodes[i + 1]}`);
       }
 
-      // Update nodes state with affected state
       setNodes(prevNodes =>
-        prevNodes.map(node => {
-          const isImpacted = affectedSet.has(node.id);
-          const isTarget = node.id === data.target;
-          return {
-            ...node,
-            data: {
-              ...node.data,
-              isImpacted,
-              isTarget
-            }
-          };
+        prevNodes.map(node => ({
+          ...node,
+          data: { ...node.data, isImpacted: affectedSet.has(node.id), isTarget: node.id === data.target }
+        }))
+      );
+      setEdges(prevEdges =>
+        prevEdges.map(edge => {
+          const isBlastPath = pathEdgeSet.has(edge.id);
+          return isBlastPath
+            ? { ...edge, animated: true, style: { stroke: '#ef4444', strokeWidth: 3.5 }, markerEnd: { type: MarkerType.ArrowClosed, color: '#ef4444' } }
+            : edge;
         })
       );
-
-      // Update edges state to highlight dependency path
-        setEdges(prevEdges =>
-          prevEdges.map(edge => {
-            const isBlastPath = pathEdgeSet.has(edge.id);
-            if (isBlastPath) {
-              return {
-                ...edge,
-                animated: true,
-                style: {
-                  stroke: '#ef4444',
-                  strokeWidth: 3.5,
-                },
-                markerEnd: {
-                  type: MarkerType.ArrowClosed,
-                  color: '#ef4444',
-                }
-              };
-            }
-            return edge;
-          })
-        );
-  
-        // Center view on affected nodes
-        setTimeout(() => {
-          fitView({
-            padding: 0.2,
-            duration: 800,
-            nodes: pathNodes.map(id => ({ id }))
-          });
-        }, 100);
-
+      setTimeout(() => fitView({ padding: 0.2, duration: 800, nodes: pathNodes.map(id => ({ id })) }), 100);
     } catch (err) {
       console.error('Error running simulation:', err);
     } finally {
@@ -340,23 +628,35 @@ function FlowContent() {
     }
   };
 
-    const handleResetSimulation = () => {
-      setSimulationResult(null);
-      setRepairPanelOpen(false);
-      setRepairData(null);
-      if (!graphData) return;
-  
+  const handleResetSimulation = () => {
+    setSimulationResult(null);
+    setRepairPanelOpen(false);
+    setRepairData(null);
+    setApplyResult(null);
+
+    // In demo mode: restore from DEMO data via syncReactFlow
+    if (isDemo) {
+      const raw = rawAnalysisRef.current;
+      raw.nodes = DEMO_NODES;
+      raw.edges = DEMO_EDGES;
+      raw.impacted = new Set(DEMO_NODES.filter(n => n.status === 'impacted').map(n => n.id));
+      raw.positions = layoutGraph(DEMO_NODES, DEMO_EDGES);
+      syncReactFlow();
+      setTimeout(() => fitView({ padding: 0.2, duration: 800 }), 150);
+      return;
+    }
+
+    // Non-demo: restore from raw analysis ref or graphData
+    const raw = rawAnalysisRef.current;
+    if (raw.nodes.length > 0) {
+      syncReactFlow();
+    } else if (graphData) {
       setNodes(prevNodes =>
         prevNodes.map(node => ({
           ...node,
-          data: {
-            ...node.data,
-            isImpacted: false,
-            isTarget: false
-          }
+          data: { ...node.data, isImpacted: false, isTarget: false }
         }))
       );
-  
       setEdges(graphData.edges.map(edge => {
         const isImplicit = edge.relationshipType === 'implicit_queue' || edge.relationshipType === 'implicit_db' || edge.type === 'implicit' || edge.type === 'subscribes';
         return {
@@ -372,21 +672,13 @@ function FlowContent() {
             strokeWidth: isImplicit ? 2 : 1.5,
             strokeDasharray: isImplicit ? '5,5' : 'none',
           },
-          markerEnd: {
-            type: MarkerType.ArrowClosed,
-            color: isImplicit ? '#f59e0b' : '#94a3b8',
-          },
+          markerEnd: { type: MarkerType.ArrowClosed, color: isImplicit ? '#f59e0b' : '#94a3b8' },
           data: { type: edge.type, relationshipType: edge.relationshipType }
         };
       }));
-      
-      setTimeout(() => {
-        fitView({
-          padding: 0.1,
-          duration: 800
-        });
-      }, 100);
-    };
+    }
+    setTimeout(() => fitView({ padding: 0.1, duration: 800 }), 100);
+  };
 
   const handleReset = () => {
     setSimulationResult(null);
@@ -421,16 +713,17 @@ function FlowContent() {
   };
 
   const handleGenerateRepair = async () => {
+    if (!simulationResult) return;
     setLoadingRepair(true);
     setRepairPanelOpen(true);
-    setApplyResult(null); // Reset any previous apply results
+    setRepairData(null);
     try {
       const response = await fetch(getApiUrl('/api/repair'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          target: simulationResult.target,
-          change: simulationResult.change
+          target: simulationResult.target || 'auth-service',
+          change: simulationResult.change || 'rename user_id to userId'
         })
       });
       if (!response.ok) throw new Error('Repair generation failed');
@@ -438,6 +731,7 @@ function FlowContent() {
       setRepairData(data);
     } catch (err) {
       console.error('Error generating repair:', err);
+      setRepairPanelOpen(false);
     } finally {
       setLoadingRepair(false);
     }
@@ -506,106 +800,253 @@ function FlowContent() {
     setSelectedNode(node);
   }, []);
 
+  /* ── Feature A: Search-filtered node view ── */
+  // Derive display nodes with dimmed opacity for non-matches. No graph remount.
+  const searchTerm = graphSearch.trim().toLowerCase();
+  const displayNodes = useMemo(() => {
+    if (!searchTerm) return nodes;
+    return nodes.map(n => {
+      let codeHaystack = [];
+      if (n.data?.lines) {
+        codeHaystack = n.data.lines.flatMap(l => [l.code, l.before, l.after, l.hint]);
+      }
+      if (n.data?.layers) {
+        n.data.layers.forEach(layer => {
+          codeHaystack.push(layer.title, layer.file);
+          if (layer.lines) {
+             layer.lines.forEach(l => {
+               codeHaystack.push(l.code, l.before, l.after, l.hint);
+             });
+          }
+        });
+      }
+
+      const hay = [
+        n.id, n.data?.label, n.data?.file, n.data?.role, n.data?.tier, n.data?.status, n.type, ...codeHaystack
+      ].filter(Boolean).join(' ').toLowerCase();
+      const matches = hay.includes(searchTerm);
+      return {
+        ...n,
+        data: {
+          ...n.data,
+          searchTerm,
+        },
+        style: {
+          ...n.style,
+          opacity: matches ? 1 : 0.15,
+          transition: 'opacity 0.2s',
+        },
+      };
+    });
+  }, [nodes, searchTerm]);
+
+  // Focus viewport on first match when user presses Enter
+  const handleSearchEnter = useCallback((e) => {
+    if (e.key === 'Escape') { setGraphSearch(''); return; }
+    if (e.key !== 'Enter' || !searchTerm) return;
+    const hit = nodes.find(n => {
+      let codeHaystack = [];
+      if (n.data?.lines) {
+        codeHaystack = n.data.lines.flatMap(l => [l.code, l.before, l.after, l.hint]);
+      }
+      if (n.data?.layers) {
+        n.data.layers.forEach(layer => {
+          codeHaystack.push(layer.title, layer.file);
+          if (layer.lines) {
+             layer.lines.forEach(l => {
+               codeHaystack.push(l.code, l.before, l.after, l.hint);
+             });
+          }
+        });
+      }
+      const hay = [n.id, n.data?.label, n.data?.file, n.data?.role, n.data?.tier, ...codeHaystack].filter(Boolean).join(' ').toLowerCase();
+      return hay.includes(searchTerm);
+    });
+    if (hit) fitView({ duration: 600, padding: 0.3, nodes: [{ id: hit.id }] });
+  }, [nodes, searchTerm, fitView]);
+
+  const handleGoHome = useCallback(() => {
+    setIsDemo(false);
+    setSimulationResult(null);
+    setRepairData(null);
+    setRepairPanelOpen(false);
+    setApplyResult(null);
+    setSelectedNode(null);
+    setGraphSearch('');
+    setAnalysisSnapshot(null);
+    rawAnalysisRef.current = { nodes: [], edges: [], positions: {}, impacted: new Set() };
+    navigate('/');
+    window.location.href = '/';
+  }, [navigate]);
+
   return (
     <div className="flex h-screen w-full flex-col bg-gray-950 font-sans">
+      {/* Cinematic wave breathing background aura moved inside graph canvas */}
       {/* Header */}
-        <header className="flex h-14 items-center justify-between border-b border-gray-800 bg-gray-900 px-6 shrink-0 z-10">
-          <div className="flex items-center gap-3">
-            <Activity className="text-blue-500" />
-            <div>
-              <h1 className="text-lg font-semibold text-white leading-tight">LatentTwin</h1>
-              <p className="text-xs text-gray-400">Codebase Digital Twin & Self-Healing Engine</p>
-            </div>
+      <header className="flex h-16 items-center justify-between border-b border-gray-800/60 bg-gray-950/80 backdrop-blur-xl px-6 shrink-0 z-50 sticky top-0 shadow-sm">
+        {/* Left: Brand with animated mascot logo on first visit of the day */}
+        <div
+          onClick={handleGoHome}
+          className="flex items-center gap-3.5 shrink-0 cursor-pointer group"
+          title="Return to Home"
+        >
+          {showMascot ? (
+            <video
+              src="/mascot_anim.mp4"
+              autoPlay
+              muted
+              playsInline
+              onEnded={() => setShowMascot(false)}
+              className="w-11 h-11 object-cover rounded-xl shadow-lg shadow-blue-500/20 overflow-hidden group-hover:scale-105 transition-transform"
+            />
+          ) : (
+            <img src="/logo.png" alt="LatentTwin Logo" className="w-11 h-11 object-contain rounded-xl shadow-lg shadow-blue-500/20 group-hover:scale-105 transition-transform" />
+          )}
+          <h1 className="text-xl font-bold bg-gradient-to-r from-gray-100 to-gray-400 bg-clip-text text-transparent tracking-tight pr-6 border-r border-gray-800/60 hidden md:block group-hover:from-white group-hover:to-gray-200 transition-colors">
+            LatentTwin
+          </h1>
+        </div>
+
+        {/* Center: Repo URL bar + Demo button */}
+        <div className="flex items-center justify-start flex-1 gap-2 ml-6">
+          <div className="flex items-center bg-gray-900/90 p-1 rounded-md border border-gray-800 shadow-sm w-full max-w-md focus-within:border-blue-500/60 focus-within:ring-1 focus-within:ring-blue-500/40 transition-all">
+            <input
+              type="text"
+              value={repoUrl}
+              onChange={(e) => setRepoUrl(e.target.value)}
+              placeholder="Paste GitHub repository URL..."
+              className="bg-transparent text-xs text-gray-200 px-3 py-1 w-full focus:outline-none placeholder-gray-500 font-mono"
+              disabled={analyzing}
+            />
+            <button
+              onClick={handleAnalyzeRepo}
+              disabled={analyzing || !repoUrl}
+              className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold px-3.5 py-1 rounded transition-all disabled:opacity-50 disabled:hover:bg-blue-600 shrink-0"
+            >
+              {analyzing ? (
+                <>
+                  <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  Scanning
+                </>
+              ) : (
+                'Auto-Scan'
+              )}
+            </button>
           </div>
-          
-          <div className="flex items-center gap-6">
-            {/* System Status Indicator */}
-            {simulationResult && applyResult?.status !== 'SYSTEM HEALED' ? (
-              <div className="flex flex-col items-end">
-                <span className="flex items-center gap-2 text-red-500 font-bold text-xs uppercase tracking-widest">
-                  <span className="relative flex h-2 w-2">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
-                    <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span>
-                  </span>
-                  Critical: Blast Radius Detected
-                </span>
+          {/* Demo button — hidden after demo is loaded, replaced by DEMO badge */}
+          {!isDemo && (
+            <div className="relative flex items-center shrink-0">
+              <button
+                id="try-demo-btn"
+                onClick={loadDemo}
+                disabled={analyzing}
+                title="Load a pre-analyzed demo without GitHub credentials"
+                className="flex items-center gap-1.5 bg-emerald-900/50 hover:bg-emerald-800/70 border border-emerald-700/50 hover:border-emerald-600 text-emerald-400 hover:text-emerald-300 text-xs font-semibold px-3 py-1.5 rounded-md transition-all shrink-0 disabled:opacity-40 shadow-sm"
+              >
+                <FlaskConical size={12} />
+                Try Demo
+              </button>
+
+              {/* Tooltip on the right side of "Try Demo" — shown before user clicks */}
+              <div className="absolute left-full top-1/2 ml-2.5 px-2.5 py-1 bg-indigo-950/90 text-indigo-200 text-[10px] font-medium rounded-md border border-indigo-500/40 whitespace-nowrap shadow-lg shadow-indigo-950/40 animate-gentle-tooltip pointer-events-none z-50 flex items-center gap-1 backdrop-blur-md">
+                <div className="absolute -left-1 top-1/2 -translate-y-1/2 border-y-4 border-r-4 border-y-transparent border-r-indigo-950/90" />
+                Click here to see how it works
               </div>
-            ) : applyResult?.status === 'SYSTEM HEALED' ? (
-              <div className="flex items-center gap-2 text-green-500 font-bold text-xs uppercase tracking-widest">
+            </div>
+          )}
+
+          {/* Demo mode badge — replaces the Try Demo button after click */}
+          {isDemo && (
+            <span className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-widest text-amber-400 bg-amber-400/10 border border-amber-400/20 px-2 py-1 rounded-md animate-fade-in">
+              DEMO
+            </span>
+          )}
+        </div>
+
+        {/* Right: Controls & Status */}
+        <div className="flex items-center justify-end gap-3 shrink-0">
+          {/* Feature B: Export Report bar — only shown when scan data exists */}
+          {analysisSnapshot && !analyzing && (
+            <div className="flex items-center gap-1.5 bg-gray-900/60 p-1 rounded-lg border border-gray-800/60 shadow-inner mr-2">
+              <Download size={12} className="text-gray-500 ml-1.5" />
+              <span className="text-[9px] font-bold uppercase tracking-widest text-gray-500 mr-1 hidden lg:inline">Export</span>
+              <button
+                id="export-json-btn"
+                onClick={() => exportJSON(analysisSnapshot, repoUrl)}
+                className="text-[10px] font-semibold text-sky-400 hover:text-white bg-sky-500/10 hover:bg-sky-600/30 border border-sky-500/20 hover:border-sky-500/50 px-2 py-1 rounded transition-all"
+              >
+                JSON
+              </button>
+              <button
+                id="export-md-btn"
+                onClick={() => exportMarkdown(analysisSnapshot, repoUrl)}
+                className="text-[10px] font-semibold text-violet-400 hover:text-white bg-violet-500/10 hover:bg-violet-600/30 border border-violet-500/20 hover:border-violet-500/50 px-2 py-1 rounded transition-all"
+              >
+                Markdown
+              </button>
+            </div>
+          )}
+
+          {/* View Mode Toggle */}
+          <div className="flex items-center bg-gray-900/60 p-1 rounded-lg border border-gray-800/60 shadow-inner">
+            <button
+              onClick={() => setViewMode('graph')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold tracking-wide transition-all ${
+                viewMode === 'graph' 
+                  ? 'bg-gray-800 text-white shadow-sm' 
+                  : 'text-gray-400 hover:text-gray-200'
+              }`}
+            >
+              <Monitor size={14} /> Graph
+            </button>
+            <button
+              onClick={() => setViewMode('3d')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold tracking-wide transition-all ${
+                viewMode === '3d' 
+                  ? 'bg-indigo-600/90 text-white shadow-sm' 
+                  : 'text-gray-400 hover:text-gray-200'
+              }`}
+            >
+              <Hexagon size={14} /> 3D
+            </button>
+          </div>
+
+          <div className="h-6 w-px bg-gray-800/60"></div>
+
+          {/* API Status */}
+          <div className="flex items-center">
+            {backendStatus === 'connected' ? (
+              <span className="flex items-center gap-2 text-emerald-400 bg-emerald-400/10 px-2.5 py-1.5 rounded-md text-xs font-medium border border-emerald-400/20">
                 <span className="relative flex h-2 w-2">
-                  <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
                 </span>
-                System Healed
-              </div>
+                API
+              </span>
+            ) : backendStatus === 'connecting' ? (
+              <span className="flex items-center gap-2 text-amber-400 bg-amber-400/10 px-2.5 py-1.5 rounded-md text-xs font-medium border border-amber-400/20">
+                <span className="w-2 h-2 bg-amber-400 rounded-full animate-pulse"></span>
+                API
+              </span>
             ) : (
-              <div className="flex items-center gap-2 text-green-500 font-bold text-xs uppercase tracking-widest">
-                <span className="relative flex h-2 w-2">
-                  <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
-                </span>
-                System Operational
-              </div>
+              <span className="flex items-center gap-2 text-rose-400 bg-rose-400/10 px-2.5 py-1.5 rounded-md text-xs font-medium border border-rose-400/20">
+                <span className="w-2 h-2 bg-rose-500 rounded-full"></span>
+                API
+              </span>
             )}
-  
-            <div className="h-6 w-px bg-gray-800"></div>
-
-            {/* View Mode Toggle */}
-            <div className="flex items-center bg-gray-950 p-1 rounded-lg border border-gray-800">
-              <button
-                onClick={() => setViewMode('graph')}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold uppercase tracking-wider transition ${
-                  viewMode === 'graph' 
-                    ? 'bg-gray-800 text-white shadow-sm' 
-                    : 'text-gray-500 hover:text-gray-300'
-                }`}
-              >
-                <Monitor size={14} /> Graph
-              </button>
-              <button
-                onClick={() => setViewMode('3d')}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold uppercase tracking-wider transition ${
-                  viewMode === '3d' 
-                    ? 'bg-blue-600 text-white shadow-sm' 
-                    : 'text-gray-500 hover:text-gray-300'
-                }`}
-              >
-                <Hexagon size={14} /> 3D Pipeline
-              </button>
-            </div>
-
-            <div className="h-6 w-px bg-gray-800"></div>
-  
-            <div className="flex items-center gap-4 text-sm">
-              <div className="flex items-center gap-2">
-                <span className="text-gray-400">API:</span>
-                {backendStatus === 'connected' ? (
-                  <span className="flex items-center gap-1.5 text-green-400 bg-green-400/10 px-2 py-1 rounded-md text-xs font-medium border border-green-400/20">
-                    <span className="w-1.5 h-1.5 bg-green-400 rounded-full animate-pulse"></span>
-                    Connected
-                  </span>
-                ) : backendStatus === 'connecting' ? (
-                  <span className="flex items-center gap-1.5 text-yellow-400 bg-yellow-400/10 px-2 py-1 rounded-md text-xs font-medium border border-yellow-400/20">
-                    <span className="w-1.5 h-1.5 bg-yellow-400 rounded-full"></span>
-                    Connecting...
-                  </span>
-                ) : (
-                  <span className="flex items-center gap-1.5 text-red-400 bg-red-400/10 px-2 py-1 rounded-md text-xs font-medium border border-red-400/20">
-                    <span className="w-1.5 h-1.5 bg-red-400 rounded-full"></span>
-                    Disconnected
-                  </span>
-                )}
-              </div>
-            </div>
           </div>
-        </header>
+        </div>
+      </header>
 
       {/* Main Content */}
       <div className="flex flex-1 overflow-hidden relative">
         {viewMode === '3d' ? (
-          <PipelineScene3D />
+          <PipelineScene3D analysisData={analysisSnapshot} />
         ) : (
           <>
             {/* Graph Canvas */}
             <div className="flex-1 h-full bg-grid-pattern relative">
+
           {/* CrossSection global axis-mode toggle bar */}
           {!loading && (
             <div
@@ -631,16 +1072,101 @@ function FlowContent() {
             </div>
           )}
 
-          {loading ? (
-            <div className="absolute inset-0 flex items-center justify-center text-gray-400">
-              <div className="flex flex-col items-center gap-3">
-                <Activity className="animate-spin text-blue-500" size={32} />
-                <span>Loading Architecture Graph...</span>
-              </div>
+          {/* Floating navigation toolbar — zoom, fit-all, focus impacted */}
+          {!loading && (
+            <div className="absolute bottom-6 left-1/2 z-30 flex items-center gap-1.5 bg-gray-900/95 border border-gray-700/80 rounded-xl px-2 py-1.5 shadow-2xl backdrop-blur-md" style={{ transform: 'translateX(-50%)' }}>
+              {/* Zoom out */}
+              <button
+                onClick={() => fitView({ duration: 400, padding: 0.05, minZoom: 0.05, maxZoom: 0.5 })}
+                title="Zoom out to overview"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-bold text-gray-400 hover:text-white hover:bg-gray-800/80 transition-all uppercase tracking-wider"
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
+                Zoom Out
+              </button>
+              <div className="w-px h-4 bg-gray-700" />
+              {/* Fit all */}
+              <button
+                onClick={() => fitView({ duration: 600, padding: 0.15 })}
+                title="Fit entire graph"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-bold text-gray-400 hover:text-white hover:bg-gray-800/80 transition-all uppercase tracking-wider"
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M3 9V5a2 2 0 0 1 2-2h4M3 15v4a2 2 0 0 0 2 2h4m10-16h4a2 2 0 0 1 2 2v4m0 10v4a2 2 0 0 1-2 2h-4"/></svg>
+                Fit All
+              </button>
+              <div className="w-px h-4 bg-gray-700" />
+              {/* Focus impacted */}
+              <button
+                onClick={fitImpacted}
+                title="Zoom to impacted nodes"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-bold text-red-400 hover:text-red-300 hover:bg-red-900/20 transition-all uppercase tracking-wider border border-transparent hover:border-red-800/40"
+              >
+                <AlertCircle size={11} />
+                Focus Impacted
+              </button>
+              <div className="w-px h-4 bg-gray-700" />
+              {/* Show full graph toggle */}
+              <button
+                onClick={() => setShowFullGraph(v => !v)}
+                title={showFullGraph ? 'Show focused neighborhood' : 'Show full dependency graph'}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-bold transition-all uppercase tracking-wider ${
+                  showFullGraph
+                    ? 'text-indigo-300 bg-indigo-900/30 border border-indigo-700/40'
+                    : 'text-gray-400 hover:text-white hover:bg-gray-800/80'
+                }`}
+              >
+                <Box size={11} />
+                {showFullGraph ? 'Full Graph' : 'Focused'}
+              </button>
             </div>
+          )}
+
+          {/* Feature A: Graph Search Overlay */}
+          {!loading && nodes.length > 0 && (
+            <div
+              className="absolute top-3 right-16 z-30 flex items-center gap-1.5"
+              style={{ minWidth: 220 }}
+            >
+              <div className="flex items-center gap-2 bg-gray-900/95 border border-gray-700/80 rounded-lg px-2.5 py-1.5 shadow-xl backdrop-blur-md w-full focus-within:border-blue-500/60 transition-all">
+                <Search size={11} className="text-gray-500 shrink-0" />
+                <input
+                  id="graph-search-input"
+                  ref={searchInputRef}
+                  type="text"
+                  value={graphSearch}
+                  onChange={e => setGraphSearch(e.target.value)}
+                  onKeyDown={handleSearchEnter}
+                  placeholder="Search nodes..."
+                  className="bg-transparent text-[11px] text-gray-200 placeholder-gray-600 focus:outline-none w-full font-mono"
+                />
+                {graphSearch && (
+                  <button
+                    onClick={() => setGraphSearch('')}
+                    className="text-gray-500 hover:text-white transition-colors shrink-0"
+                    title="Clear search (Esc)"
+                  >
+                    <X size={10} />
+                  </button>
+                )}
+              </div>
+              {graphSearch && (
+                <span className="text-[10px] text-gray-500 font-mono shrink-0 whitespace-nowrap">
+                  {displayNodes.filter(n => (n.style?.opacity ?? 1) === 1).length} match
+                </span>
+              )}
+            </div>
+          )}
+
+
+          {/* Scanning overlay — full-screen particle wave */}
+          {analyzing && <ParticleWave />}
+
+          {loading ? (
+            <ParticleWave />
           ) : (
+
             <ReactFlow
-              nodes={nodes}
+              nodes={displayNodes}
               edges={edges}
               onNodesChange={onNodesChange}
               onEdgesChange={onEdgesChange}
@@ -648,83 +1174,108 @@ function FlowContent() {
               onPaneClick={onPaneClick}
               nodeTypes={nodeTypes}
               fitView
+              minZoom={0.03}
+              maxZoom={2}
               className="bg-transparent"
               colorMode="dark"
+              onlyRenderVisibleElements
             >
               <Background color="#334155" gap={20} size={1} />
-              <Controls position="top-right" className="bg-gray-800 border-gray-700 text-gray-300 fill-gray-300 shadow-xl" style={{ zIndex: 50 }} />
+              <Controls
+                position="top-right"
+                className="bg-gray-800 border-gray-700 text-gray-300 fill-gray-300 shadow-xl"
+                style={{ zIndex: 50 }}
+                showInteractive={false}
+              />
               <MiniMap
                 nodeStrokeColor={(n) => {
+                  const s = n.data?.status;
+                  if (s === 'impacted') return '#f87171';
+                  if (s === 'affected-downstream') return '#fb923c';
                   if (n.type === 'service') return '#3b82f6';
-                  return '#a855f7';
+                  return '#64748b';
                 }}
                 nodeColor={(n) => {
-                  if (n.type === 'service') return '#1e293b';
+                  const s = n.data?.status;
+                  if (s === 'impacted') return '#450a0a';
+                  if (s === 'affected-downstream') return '#431407';
                   return '#0f172a';
                 }}
-                maskColor="rgba(15, 23, 42, 0.8)"
-                className="bg-gray-900 border border-gray-800"
+                maskColor="rgba(5, 10, 25, 0.85)"
+                className="bg-gray-900 border border-gray-700 rounded-xl shadow-2xl"
+                position="bottom-right"
+                zoomable
+                pannable
+                style={{ width: 180, height: 120 }}
               />
             </ReactFlow>
           )}
         </div>
 
         {/* Left Side Navigation / State / Overlay */}
-        <div className="absolute top-6 bottom-6 left-6 z-20 flex flex-col gap-4 w-80 max-h-full overflow-y-auto pointer-events-none pb-4 hide-scrollbar">
-          {/* Inject Breaking Change Control */}
-          <div className="bg-gray-900 border border-gray-800 p-4 rounded-xl shadow-xl pointer-events-auto shrink-0">
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest flex items-center gap-1.5">
-                <Zap size={14} className="text-amber-500" /> Simulator
-              </span>
-              {simulationResult && (
-                <button
-                  onClick={handleResetSimulation}
-                  className="text-[10px] uppercase font-bold tracking-wider text-gray-400 hover:text-white flex items-center gap-1 bg-gray-800 px-2 py-1 rounded border border-gray-700 transition"
-                >
-                  <RefreshCw size={12} /> Reset
-                </button>
-              )}
-            </div>
+        <div className="absolute top-6 bottom-20 left-6 z-20 flex flex-col gap-3 w-72 max-h-full pointer-events-none pb-2">
+          {/* Scrollable card stack — no overlap */}
+          <div className="flex flex-col gap-3 overflow-y-auto hide-scrollbar" style={{maxHeight: '100%'}}>
 
-            <button
-              onClick={handleSimulateBreak}
-              disabled={simulating}
-              className="w-full bg-amber-600 hover:bg-amber-500 text-white font-semibold text-xs uppercase tracking-wide py-2.5 px-4 rounded-lg shadow-sm transition flex items-center justify-center gap-2 disabled:opacity-50"
-            >
-              <AlertTriangle size={14} />
-              {simulating ? 'Simulating...' : 'Inject Breaking Change'}
-            </button>
-          </div>
+          {/* Inject Breaking Change Control — shown in both demo and real mode */}
+          {(isDemo || nodes.length > 0) && (
+            <div className="bg-gray-900/95 border border-gray-800 p-3.5 rounded-xl shadow-xl pointer-events-auto shrink-0 backdrop-blur-sm">
+              <div className="flex items-center justify-between mb-2.5">
+                <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest flex items-center gap-1.5">
+                  <Zap size={13} className="text-amber-500" /> Simulator
+                </span>
+                {simulationResult && (
+                  <button
+                    onClick={handleResetSimulation}
+                    className="text-[10px] uppercase font-bold tracking-wider text-gray-400 hover:text-white flex items-center gap-1 bg-gray-800 px-2 py-1 rounded border border-gray-700 transition"
+                  >
+                    <RefreshCw size={11} /> Reset
+                  </button>
+                )}
+              </div>
+
+              <button
+                onClick={handleSimulateBreak}
+                disabled={simulating}
+                className="w-full bg-gradient-to-r from-amber-600/80 to-orange-600/80 hover:from-amber-500 hover:to-orange-500 text-white font-semibold text-[11px] uppercase tracking-wide py-2 px-4 rounded-lg shadow-sm transition-all flex items-center justify-center gap-2 border border-amber-500/30 disabled:opacity-50"
+              >
+                {simulating ? (
+                  <><RefreshCw size={13} className="animate-spin text-amber-300" /><span>Simulating Break...</span></>
+                ) : (
+                  <><AlertTriangle size={13} /><span>Inject Breaking Change</span></>
+                )}
+              </button>
+            </div>
+          )}
 
           {/* Blast Radius Summary Card */}
           {simulationResult && applyResult?.status !== 'SYSTEM HEALED' && (
-            <div className="bg-red-950/80 border border-red-900/50 p-4 rounded-xl shadow-xl animate-fade-in flex flex-col gap-4 pointer-events-auto shrink-0">
-              <div className="flex flex-col gap-1 border-b border-red-900/50 pb-3">
+            <div className="bg-red-950/90 border border-red-900/50 p-3.5 rounded-xl shadow-xl animate-fade-in flex flex-col gap-3 pointer-events-auto shrink-0 backdrop-blur-sm">
+              <div className="flex flex-col gap-1 border-b border-red-900/50 pb-2.5">
                 <div className="flex items-center gap-2">
-                  <AlertCircle className="text-red-500 shrink-0" size={16} />
+                  <AlertCircle className="text-red-500 shrink-0" size={14} />
                   <h2 className="text-[10px] font-bold text-red-400 uppercase tracking-widest">
                     Critical Error
                   </h2>
                 </div>
-                <div className="font-mono text-xs text-red-200 mt-1 pl-6">
+                <div className="font-mono text-[11px] text-red-200 mt-0.5 pl-5">
                   Type mismatch: user_id → userId
                 </div>
               </div>
 
               <div>
-                <h3 className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-2">
+                <h3 className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-1.5">
                   Blast Radius
                 </h3>
-                <div className="flex flex-col gap-1.5">
+                <div className="flex flex-col gap-1">
                   {simulationResult.affectedNodes
                     ?.filter(nodeId => nodeId !== simulationResult.target)
                     .map(nodeId => {
                       const nodeObj = nodes.find(n => n.id === nodeId);
                       const name = nodeObj ? nodeObj.data.name : nodeId;
                       return (
-                        <div key={nodeId} className="flex items-center gap-2 text-xs text-red-300 bg-red-900/20 border border-red-900/30 px-2 py-1.5 rounded font-medium">
-                          <span className="w-1.5 h-1.5 rounded-full bg-red-500"></span>
+                        <div key={nodeId} className="flex items-center gap-2 text-[11px] text-red-300 bg-red-900/20 border border-red-900/30 px-2 py-1 rounded font-medium">
+                          <span className="w-1.5 h-1.5 rounded-full bg-red-500 shrink-0"></span>
                           <span>{name}</span>
                         </div>
                       );
@@ -733,58 +1284,77 @@ function FlowContent() {
               </div>
 
               {simulationResult.relevantInvariants && simulationResult.relevantInvariants.length > 0 && (
-                <div className="pt-3 border-t border-red-900/50">
-                  <h3 className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-2 flex items-center gap-1.5">
-                    <GitMerge size={12} className="text-gray-400" /> Applicable Invariants
+                <div className="border-t border-red-900/50 pt-2.5">
+                  <h3 className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-1.5 flex items-center gap-1.5">
+                    <GitMerge size={11} className="text-gray-400" /> Invariants
                   </h3>
-                  <div className="flex flex-col gap-2">
+                  <div className="flex flex-col gap-1.5">
                     {simulationResult.relevantInvariants.map((inv, idx) => (
-                      <div key={idx} className="bg-gray-900/50 border border-gray-800 p-2 rounded text-xs text-gray-400 leading-relaxed">
-                        <span className="font-mono text-gray-500 mr-2">
-                          {inv.pr}
-                        </span>
+                      <div key={idx} className="bg-gray-900/60 border border-gray-800 px-2 py-1.5 rounded text-[11px] text-gray-400 leading-relaxed">
+                        <span className="font-mono text-gray-500 mr-1.5">{inv.pr}</span>
                         <span>{inv.description}</span>
                       </div>
                     ))}
                   </div>
                 </div>
               )}
+
               {simulationResult.relevantInvariants && simulationResult.relevantInvariants.length > 0 && (
-                <div className="pt-3 border-t border-red-900/50 mt-1">
+                <div className="border-t border-red-900/50 pt-2">
                   <button
                     onClick={handleGenerateRepair}
                     disabled={loadingRepair}
-                    className="w-full bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs uppercase tracking-wide py-2.5 px-4 rounded-lg shadow-sm transition flex items-center justify-center gap-2 disabled:opacity-50"
+                    className="w-full bg-gradient-to-r from-blue-600/80 to-indigo-600/80 hover:from-blue-500 hover:to-indigo-500 text-white font-semibold text-[11px] uppercase tracking-wide py-2 px-4 rounded-lg shadow-sm transition-all flex items-center justify-center gap-2 border border-blue-500/30 disabled:opacity-50"
                   >
-                    <Wrench size={14} />
-                    {loadingRepair ? 'Generating...' : 'Generate Repair'}
+                    {loadingRepair ? (
+                      <><Activity size={13} className="animate-spin" /><span>Synthesizing Patch...</span></>
+                    ) : (
+                      <><Wrench size={13} /><span>Generate Repair</span></>
+                    )}
                   </button>
                 </div>
               )}
             </div>
           )}
 
-          {/* Dependency Types Legend inside left panel flow */}
-          <div className="bg-gray-900 border border-gray-800 p-4 rounded-xl shadow-xl pointer-events-auto shrink-0 mt-auto">
-            <h3 className="text-[10px] font-bold text-gray-500 mb-3 uppercase tracking-widest">Dependency Types</h3>
-            <div className="flex flex-col gap-3 text-xs font-medium">
-              <div className="flex items-center gap-3">
-                <div className="w-6 h-0.5 bg-gray-500"></div>
-                <span className="text-gray-400">Explicit Call</span>
-              </div>
-              <div className="flex items-center gap-3">
-                <div className="w-6 border-b-2 border-dashed border-gray-500"></div>
-                <span className="text-gray-400">Implicit Event</span>
-              </div>
-              {simulationResult && (
-                <div className="flex items-center gap-3 pt-2 border-t border-gray-800">
-                  <div className="w-6 h-0.5 bg-red-500"></div>
-                  <span className="text-red-400">Blast Radius Path</span>
+          </div>{/* end scrollable stack */}
+        </div>
+
+        {/* Dependency Types Legend — fixed floating hover card, bottom-left, compact by default */}
+        {(isDemo || analysisSnapshot) && (
+          <div className="absolute bottom-6 left-6 z-30 pointer-events-auto group">
+            {/* Compact pill — always visible */}
+            <div className="flex items-center gap-2 bg-gray-900/80 border border-gray-800/80 px-3 py-1.5 rounded-lg backdrop-blur-sm shadow-lg cursor-default transition-all duration-300">
+              <div className="w-4 h-px bg-gray-500"></div>
+              <div className="w-4 border-b border-dashed border-gray-500"></div>
+              {simulationResult && <div className="w-4 h-px bg-red-500"></div>}
+              <span className="text-[10px] text-gray-500 font-semibold uppercase tracking-widest">Legend</span>
+            </div>
+            {/* Expanded card — slides up on hover */}
+            <div className="absolute bottom-full left-0 mb-2 w-48 bg-gray-900/95 border border-gray-800 p-3.5 rounded-xl shadow-2xl backdrop-blur-sm
+                            opacity-0 translate-y-2 pointer-events-none
+                            group-hover:opacity-100 group-hover:translate-y-0 group-hover:pointer-events-auto
+                            transition-all duration-200 ease-out">
+              <h3 className="text-[10px] font-bold text-gray-500 mb-2.5 uppercase tracking-widest">Dependency Types</h3>
+              <div className="flex flex-col gap-2.5 text-xs font-medium">
+                <div className="flex items-center gap-3">
+                  <div className="w-6 h-px bg-gray-400 shrink-0"></div>
+                  <span className="text-gray-400">Explicit Call</span>
                 </div>
-              )}
+                <div className="flex items-center gap-3">
+                  <div className="w-6 border-b-2 border-dashed border-gray-500 shrink-0"></div>
+                  <span className="text-gray-400">Implicit Event</span>
+                </div>
+                {simulationResult && (
+                  <div className="flex items-center gap-3 pt-2 border-t border-gray-800">
+                    <div className="w-6 h-px bg-red-500 shrink-0"></div>
+                    <span className="text-red-400">Blast Radius</span>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
-        </div>
+        )}
 
         {/* Repair Panel Overlay */}
         {repairPanelOpen && (
@@ -804,10 +1374,7 @@ function FlowContent() {
             
             <div className="flex-1 min-h-0 overflow-y-auto p-6">
               {loadingRepair ? (
-                <div className="flex flex-col items-center justify-center py-20 gap-4 text-gray-500">
-                  <Activity className="animate-spin text-blue-500" size={24} />
-                  <span className="text-[10px] uppercase font-bold tracking-widest">Synthesizing patch...</span>
-                </div>
+                <ParticleWave />
               ) : repairData ? (
                 <div className="flex flex-col gap-6">
                   <div className="grid grid-cols-2 gap-4">
@@ -928,106 +1495,190 @@ function FlowContent() {
           </div>
         )}
 
-        {selectedNode && (
-          <div className="w-96 border-l border-gray-800 bg-gray-900 overflow-y-auto flex flex-col shadow-2xl z-20 transition-transform">
-            <div className="p-5 border-b border-gray-800 bg-gray-800/50">
-              <div className="flex items-start justify-between">
-                <div className="flex items-center gap-3">
-                  <div className={`p-2 rounded-lg ${selectedNode.type === 'service' ? 'bg-blue-500/20 text-blue-400' : 'bg-purple-500/20 text-purple-400'}`}>
-                    {selectedNode.type === 'service' ? <Server size={24} /> : <Database size={24} />}
+        {selectedNode && (() => {
+          const nd = selectedNode.data;
+          const bugLines = (nd.layers ?? []).flatMap(l => (l.lines ?? []).filter(l => l.error));
+          const allLines = (nd.layers ?? []).flatMap(l => (l.lines ?? []));
+          const isImpacted = nd.status === 'impacted' || nd.status === 'affected-downstream';
+          const outEdges = edges.filter(e => e.source === selectedNode.id);
+          const inEdges = edges.filter(e => e.target === selectedNode.id);
+          return (
+            <div className="w-[420px] border-l border-gray-800 bg-gray-900 overflow-y-auto flex flex-col shadow-2xl z-20">
+              {/* Header */}
+              <div className={`p-4 border-b flex items-start justify-between ${
+                isImpacted ? 'border-red-900/60 bg-red-950/30' : 'border-gray-800 bg-gray-800/40'
+              }`}>
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className={`p-2 rounded-lg shrink-0 ${
+                    nd.status === 'impacted' ? 'bg-red-500/20 text-red-400' :
+                    nd.status === 'affected-downstream' ? 'bg-orange-500/20 text-orange-400' :
+                    'bg-sky-500/20 text-sky-400'
+                  }`}>
+                    <AlertCircle size={18} />
                   </div>
-                  <div>
-                    <h2 className="text-xl font-bold text-white">{selectedNode.data.name}</h2>
-                    <span className="text-xs font-medium text-gray-400 uppercase tracking-wider">{selectedNode.data.type}</span>
+                  <div className="min-w-0">
+                    <h2 className="text-sm font-bold text-white truncate">{nd.label || nd.file?.split('/').pop()}</h2>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <span className={`text-[10px] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded ${
+                        nd.status === 'impacted' ? 'bg-red-500/20 text-red-400' :
+                        nd.status === 'affected-downstream' ? 'bg-orange-500/20 text-orange-400' :
+                        nd.status === 'context' ? 'bg-gray-700 text-gray-400' :
+                        'bg-emerald-500/20 text-emerald-400'
+                      }`}>{nd.status || 'healthy'}</span>
+                      {nd.tier && <span className="text-[10px] text-gray-500 font-mono">{nd.tier}</span>}
+                    </div>
                   </div>
                 </div>
-              </div>
-            </div>
-            
-            <div className="p-5 flex-1 flex flex-col gap-6">
-              {/* Description */}
-              <div>
-                <h3 className="text-sm font-semibold text-gray-400 flex items-center gap-2 mb-2">
-                  <Info size={16} /> Description
-                </h3>
-                <p className="text-sm text-gray-300 leading-relaxed bg-gray-800/50 p-3 rounded-lg border border-gray-800/80">
-                  {selectedNode.data.description || 'No description available for this node.'}
-                </p>
+                <button onClick={() => { setSelectedNode(null); setFixResult(null); }} className="text-gray-600 hover:text-white transition shrink-0 ml-2">
+                  <X size={16} />
+                </button>
               </div>
 
-              {/* Connections */}
-              <div>
-                <h3 className="text-sm font-semibold text-gray-400 flex items-center gap-2 mb-3">
-                  <Activity size={16} /> Dependencies
-                </h3>
-                <div className="flex flex-col gap-2">
-                  {edges.filter(e => e.source === selectedNode.id).length > 0 ? (
-                    <div>
-                      <span className="text-xs text-gray-500 mb-1 block">Outgoing (Depends On)</span>
-                      {edges.filter(e => e.source === selectedNode.id).map(e => {
-                        const targetNode = nodes.find(n => n.id === e.target);
-                        return (
-                          <div key={e.id} className="flex items-center justify-between text-sm bg-gray-800/50 p-2 rounded-md border border-gray-800">
-                            <span className="text-gray-300">{targetNode?.data.label}</span>
-                            <span className={`text-[10px] px-1.5 py-0.5 rounded-sm uppercase tracking-wide font-medium ${
-                              e.data?.type === 'implicit' ? 'bg-amber-500/20 text-amber-500' : 'bg-slate-700 text-slate-300'
-                            }`}>
-                              {e.data?.type || 'explicit'}
-                            </span>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  ) : (
-                    <span className="text-sm text-gray-500 italic">No outgoing dependencies</span>
-                  )}
-                  
-                  {edges.filter(e => e.target === selectedNode.id).length > 0 && (
-                    <div className="mt-2">
-                      <span className="text-xs text-gray-500 mb-1 block">Incoming (Required By)</span>
-                      {edges.filter(e => e.target === selectedNode.id).map(e => {
-                        const sourceNode = nodes.find(n => n.id === e.source);
-                        return (
-                          <div key={e.id} className="flex items-center justify-between text-sm bg-gray-800/50 p-2 rounded-md border border-gray-800">
-                            <span className="text-gray-300">{sourceNode?.data.label}</span>
-                            <span className={`text-[10px] px-1.5 py-0.5 rounded-sm uppercase tracking-wide font-medium ${
-                              e.data?.type === 'implicit' ? 'bg-amber-500/20 text-amber-500' : 'bg-slate-700 text-slate-300'
-                            }`}>
-                              {e.data?.type || 'explicit'}
-                            </span>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-              </div>
+              <div className="flex-1 flex flex-col gap-0 overflow-y-auto">
+                {/* File path */}
+                {nd.file && (
+                  <div className="px-4 py-2.5 border-b border-gray-800/60">
+                    <p className="text-[10px] text-gray-500 font-mono truncate">{nd.file}</p>
+                  </div>
+                )}
 
-              {/* Invariants */}
-              {selectedNode.data.invariants && selectedNode.data.invariants.length > 0 && (
-                <div>
-                  <h3 className="text-sm font-semibold text-gray-400 flex items-center gap-2 mb-3">
-                    <GitMerge size={16} /> Historical PR Invariants
-                  </h3>
-                  <div className="flex flex-col gap-3">
-                    {selectedNode.data.invariants.map((inv, idx) => (
-                      <div key={idx} className="bg-blue-900/10 border border-blue-900/30 p-3 rounded-lg flex flex-col gap-1.5">
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs font-mono bg-blue-500/20 text-blue-400 px-1.5 py-0.5 rounded">
-                            {inv.pr}
-                          </span>
+                {/* Bug errors */}
+                {bugLines.length > 0 && (
+                  <div className="px-4 py-3 border-b border-gray-800/60">
+                    <h3 className="text-[10px] font-bold text-red-400 uppercase tracking-widest mb-2 flex items-center gap-1.5">
+                      <AlertCircle size={11} /> {bugLines.length} Bug{bugLines.length > 1 ? 's' : ''} Detected
+                    </h3>
+                    <div className="flex flex-col gap-2">
+                      {bugLines.map((line, i) => (
+                        <div key={i} className="rounded-lg border border-red-900/50 bg-red-950/20 p-3">
+                          {line.lineNumber && (
+                            <p className="text-[10px] text-red-500 font-mono mb-1">Line {line.lineNumber}</p>
+                          )}
+                          {line.before && (
+                            <pre className="text-[11px] font-mono text-red-300 bg-red-950/40 px-2 py-1 rounded mb-1 whitespace-pre-wrap break-all">{line.before}</pre>
+                          )}
+                          {line.hint && (
+                            <p className="text-[11px] text-gray-300 mt-1 leading-relaxed">{line.hint}</p>
+                          )}
+                          {line.after && (
+                            <div className="mt-2">
+                              <p className="text-[10px] text-emerald-500 font-bold mb-0.5">Suggested Fix:</p>
+                              <pre className="text-[11px] font-mono text-emerald-300 bg-emerald-950/30 px-2 py-1 rounded whitespace-pre-wrap break-all">{line.after}</pre>
+                            </div>
+                          )}
                         </div>
-                        <p className="text-sm text-gray-300">
-                          {inv.description}
-                        </p>
-                      </div>
-                    ))}
+                      ))}
+                    </div>
                   </div>
+                )}
+
+                {/* Role */}
+                {nd.role && (
+                  <div className="px-4 py-2.5 border-b border-gray-800/60">
+                    <p className="text-[10px] text-gray-500 uppercase tracking-widest mb-0.5">Role in Bug</p>
+                    <p className="text-xs text-gray-300 font-medium">{nd.role}</p>
+                  </div>
+                )}
+
+                {/* Connections */}
+                <div className="px-4 py-3 border-b border-gray-800/60">
+                  <h3 className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-2">Connections</h3>
+                  {outEdges.length > 0 && (
+                    <div className="mb-2">
+                      <p className="text-[10px] text-gray-600 mb-1">Outgoing →</p>
+                      {outEdges.map(e => {
+                        const tgt = nodes.find(n => n.id === e.target);
+                        const tgtStatus = tgt?.data?.status;
+                        return (
+                          <div key={e.id} className={`flex items-center justify-between text-xs px-2 py-1 rounded mb-1 ${
+                            tgtStatus === 'impacted' ? 'bg-red-950/40 border border-red-900/40 text-red-300' :
+                            tgtStatus === 'affected-downstream' ? 'bg-orange-950/30 border border-orange-900/30 text-orange-300' :
+                            'bg-gray-800/50 border border-gray-800 text-gray-400'
+                          }`}>
+                            <span className="font-mono truncate">{tgt?.data?.label || e.target}</span>
+                            {tgtStatus === 'impacted' && <AlertCircle size={10} className="text-red-500 shrink-0 ml-1" />}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                  {inEdges.length > 0 && (
+                    <div>
+                      <p className="text-[10px] text-gray-600 mb-1">← Incoming</p>
+                      {inEdges.map(e => {
+                        const src = nodes.find(n => n.id === e.source);
+                        const srcStatus = src?.data?.status;
+                        return (
+                          <div key={e.id} className={`flex items-center justify-between text-xs px-2 py-1 rounded mb-1 ${
+                            srcStatus === 'impacted' ? 'bg-red-950/40 border border-red-900/40 text-red-300' :
+                            srcStatus === 'affected-downstream' ? 'bg-orange-950/30 border border-orange-900/30 text-orange-300' :
+                            'bg-gray-800/50 border border-gray-800 text-gray-400'
+                          }`}>
+                            <span className="font-mono truncate">{src?.data?.label || e.source}</span>
+                            {srcStatus === 'impacted' && <AlertCircle size={10} className="text-red-500 shrink-0 ml-1" />}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                  {outEdges.length === 0 && inEdges.length === 0 && (
+                    <p className="text-xs text-gray-600 italic">No connections in current view</p>
+                  )}
+                </div>
+
+                {/* AI Fix result */}
+                {fixResult && (
+                  <div className="px-4 py-3 border-b border-gray-800/60">
+                    <h3 className="text-[10px] font-bold text-emerald-400 uppercase tracking-widest mb-2 flex items-center gap-1.5">
+                      <Wrench size={11} /> AI Fix
+                    </h3>
+                    <pre className="text-[11px] font-mono text-gray-200 bg-gray-950 border border-gray-800 rounded p-3 whitespace-pre-wrap break-all overflow-auto max-h-60">{fixResult}</pre>
+                  </div>
+                )}
+              </div>
+
+              {/* Fix button — only for buggy nodes */}
+              {bugLines.length > 0 && (
+                <div className="p-4 border-t border-gray-800 bg-gray-900 shrink-0">
+                  <button
+                    disabled={fixingNode}
+                    onClick={async () => {
+                      setFixingNode(true);
+                      setFixResult(null);
+                      try {
+                        const bugContext = bugLines.map(l =>
+                          `File: ${nd.file}\nLine ${l.lineNumber ?? '?'}: ${l.before ?? l.code}\nHint: ${l.hint ?? ''}`
+                        ).join('\n---\n');
+                        const r = await fetch(getAnalysisApiUrl('/ai-fix'), {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ file: nd.file, bugs: bugLines, context: bugContext })
+                        });
+                        const d = await r.json();
+                        if (r.status === 402 || d.error === 'premium_required') {
+                          navigate('/premium?feature=AI+Autonomous+Fixing');
+                          return;
+                        }
+                        setFixResult(d.fix || d.message || JSON.stringify(d));
+                      } catch(err) {
+                        setFixResult('Error: ' + err.message);
+                      } finally {
+                        setFixingNode(false);
+                      }
+                    }}
+                    className="w-full flex items-center justify-center gap-2 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-bold uppercase tracking-wide rounded-lg shadow-lg transition-all disabled:opacity-50"
+                  >
+                    {fixingNode ? (
+                      <><div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />Generating Fix...</>
+                    ) : (
+                      <><Wrench size={13} />Fix with AI</>
+                    )}
+                  </button>
                 </div>
               )}
             </div>
-          </div>
-        )}
+          );
+        })()}
           </>
         )}
       </div>

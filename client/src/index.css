@@ -10,3 +10,24 @@
     background-size: 20px 20px;
   }
 }
+
+
+/* ─── Smooth Tooltip Floating Animation ────────────────────────────── */
+@keyframes tooltip-gentle-bounce {
+  0%, 100% {
+    transform: translateY(-50%) translateX(0);
+  }
+  50% {
+    transform: translateY(-50%) translateX(5px);
+  }
+}
+
+.animate-gentle-tooltip {
+  animation: tooltip-gentle-bounce 2.5s ease-in-out infinite;
+}
+
+/* Override React Flow dark mode background to reveal breathing aura */
+.react-flow,
+.react-flow__bg {
+  background-color: transparent !important;
+}

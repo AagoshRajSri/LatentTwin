@@ -8,8 +8,9 @@ function generateDiff(filePath, originalContent, oldProperty, newProperty) {
   // Simple diff generator for single property replacement
   const lines = originalContent.split('\n');
   const diffLines = [];
-  diffLines.push(`--- a/${filePath}`);
-  diffLines.push(`+++ b/${filePath}`);
+  const normalizedPath = filePath.replace(/\\/g, '/');
+  diffLines.push(`--- a/${normalizedPath}`);
+  diffLines.push(`+++ b/${normalizedPath}`);
   
   let changeCount = 0;
   for (let i = 0; i < lines.length; i++) {
