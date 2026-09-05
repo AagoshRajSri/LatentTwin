@@ -190,7 +190,7 @@ function FlowContent() {
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
   const [selectedNode, setSelectedNode] = useState(null);
   const [graphData, setGraphData] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
   const [backendStatus, setBackendStatus] = useState('connecting');
 
