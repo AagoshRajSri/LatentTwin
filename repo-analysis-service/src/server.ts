@@ -20,16 +20,16 @@ const server = Fastify({
 
 // Manual CORS — handles both JSON routes and streaming SSE responses
 server.addHook('onRequest', async (req, reply) => {
-  const origin = req.headers.origin ?? '';
-  const isLocalhost = !origin || /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/.test(origin);
-  if (isLocalhost) {
-    reply.header('Access-Control-Allow-Origin', origin || '*');
-    reply.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    reply.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-  }
+  const origin = req.headers.origin ?? '*';
+  
+  // Allow all origins (including vercel.app production domains)
+  reply.header('Access-Control-Allow-Origin', origin);
+  reply.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  reply.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  
   // Handle preflight
   if (req.method === 'OPTIONS') {
-    reply.code(204).send();
+    return reply.code(204).send();
   }
 });
 
