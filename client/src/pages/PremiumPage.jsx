@@ -1,6 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Activity, ArrowLeft, Zap, GitPullRequest, Cpu, ShieldCheck, Lock, Sparkles, CheckCircle, Clock } from 'lucide-react';
+import { ArrowLeft, Zap, GitPullRequest, Cpu, ShieldCheck, Lock, Sparkles, CheckCircle, Clock } from 'lucide-react';
 
 const FEATURES = [
   {

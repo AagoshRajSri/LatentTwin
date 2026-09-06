@@ -48,8 +48,6 @@ export default function ParticleWave() {
       ctx.clearRect(0, 0, W, H);
 
       const colGap = W / (COLS - 1);
-      const mid    = H * 0.5;
-
       for (let row = 0; row < ROWS; row++) {
         const rowNorm = row / (ROWS - 1);  // 0 → 1
         // rows spread out from centre vertically

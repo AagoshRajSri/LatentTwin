@@ -3,7 +3,7 @@ import { callSonnet } from '../lib/geminiClient.js';
 import type { BugInput } from '../schemas/analyzeRequest.js';
 import type { FetchedFile } from './fetchRepo.js';
 import type { FileGraph } from './buildGraph.js';
-import type { DiagnosedLine } from '../schemas/analyzeRequest.js';
+ import { DiagnosedLineSchema, type DiagnosedLine } from '../schemas/analyzeRequest.js';
 
 export interface BugLocation {
   file: string;
@@ -89,7 +89,7 @@ function parseStackTrace(content: string, fileSet: Set<string>): BugLocation[] {
 }
 
 async function descriptionToFiles(description: string, filePaths: string[]): Promise<BugLocation[]> {
-  if (!process.env.GEMINI_API_KEY) return [];
+  if (!process.env.GEMINI_API_KEY && !process.env.LLM7_API_KEY) return [];
   const sample = filePaths.slice(0, 300).join('\n');
   const prompt = `Repository file listing (partial):
 ${sample}
@@ -120,22 +120,13 @@ async function diagnoseFile(
   content: string,
   bugContext: string
 ): Promise<DiagnosedLine[] | null> {
-  if (!process.env.GEMINI_API_KEY) return null;
-
-  // Send relevant surrounding context (up to 60 lines around the suspect line)
-  let snippet = content;
-  if (loc.lineNumber) {
-    const lines = content.split('\n');
-    const start = Math.max(0, loc.lineNumber - 30);
-    const end = Math.min(lines.length, loc.lineNumber + 30);
-    snippet = lines.slice(start, end).join('\n');
-  }
+  if (!process.env.GEMINI_API_KEY && !process.env.LLM7_API_KEY) return null;
 
   const prompt = `File: ${loc.file}${loc.lineNumber ? ` (around line ${loc.lineNumber})` : ''}
 
-Code snippet:
+ Complete file source:
 \`\`\`
-${snippet}
+${content}
 \`\`\`
 
 Bug context: ${bugContext}
@@ -149,13 +140,16 @@ Identify the specific broken lines in this file and produce a repair for each.`;
         STRUCTURED_SYSTEM
       );
       console.log('diagnoseFile raw attempt', attempt, ':', raw);
-      const parsed: DiagnosedLine[] = JSON.parse(raw);
+      const parsed: unknown = JSON.parse(raw);
       if (Array.isArray(parsed)) {
-        return parsed.map((l, i) => ({
-          ...l,
-          id: l.id ?? `${loc.file.replace(/\W/g, '_')}_${i}`,
-          error: true,
-        }));
+        return parsed.flatMap((line, i) => {
+          const checked = DiagnosedLineSchema.safeParse({
+            ...(typeof line === 'object' && line !== null ? line : {}),
+            id: (line as any)?.id ?? `${loc.file.replace(/\W/g, '_')}_${i}`,
+            error: true,
+          });
+          return checked.success ? [checked.data] : [];
+        });
       }
     } catch (err) {
       console.error(`[diagnoseBug] Error diagnosing ${loc.file} (attempt ${attempt + 1}):`, err);

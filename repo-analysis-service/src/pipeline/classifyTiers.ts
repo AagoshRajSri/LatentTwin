@@ -81,10 +81,13 @@ Return a JSON object mapping each file path to its tier. Example:
 {"routes/auth.ts": "api", "models/User.ts": "data"}`;
 
   const raw = await callHaiku(prompt);
-  const parsed: Record<string, string> = JSON.parse(raw);
+  const parsed: unknown = JSON.parse(raw);
   const result = new Map<string, Tier>();
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return result;
+  const requested = new Set(filePaths);
   for (const [fp, tier] of Object.entries(parsed)) {
-    result.set(fp, (tier as Tier) ?? 'other');
+    if (!requested.has(fp)) continue;
+    result.set(fp, tier === 'api' || tier === 'logic' || tier === 'data' || tier === 'other' ? tier : 'other');
   }
   return result;
 }

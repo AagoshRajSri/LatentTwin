@@ -1,5 +1,3 @@
-import fetch from "node-fetch";
-
 export const FLASH_MODEL = process.env.GEMINI_MODEL || "gemini-3.6-flash";
 export const PRO_MODEL = process.env.GEMINI_PRO_MODEL || "gemini-3.6-pro";
 

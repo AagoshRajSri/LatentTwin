@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import crypto from 'node:crypto';
 
 const CACHE_DIR = process.env.CACHE_DIR ?? path.join(os.tmpdir(), 'latent-twin-cache');
 const CACHE_MAX_SIZE_BYTES = parseInt(process.env.CACHE_MAX_SIZE_MB ?? '2048') * 1024 * 1024;
@@ -9,8 +10,8 @@ const CACHE_TTL_MS = parseInt(process.env.CACHE_TTL_HOURS ?? '24') * 60 * 60 * 1
 fs.mkdirSync(CACHE_DIR, { recursive: true });
 
 function cacheKeyToPath(key: string): string {
-  // key: "owner/repo@sha" → sanitize for filesystem
-  return path.join(CACHE_DIR, key.replace(/[/\\@:]/g, '_') + '.json');
+  const digest = crypto.createHash('sha256').update(key).digest('hex');
+  return path.join(CACHE_DIR, `${digest}.json`);
 }
 
 export function cacheGet(key: string): unknown | null {
@@ -33,7 +34,9 @@ export function cacheGet(key: string): unknown | null {
 
 export function cacheSet(key: string, value: unknown): void {
   const filePath = cacheKeyToPath(key);
-  fs.writeFileSync(filePath, JSON.stringify(value), 'utf8');
+  const tempPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
+  fs.writeFileSync(tempPath, JSON.stringify(value), 'utf8');
+  fs.renameSync(tempPath, filePath);
   evictIfNeeded();
 }
 

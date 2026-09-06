@@ -19,6 +19,7 @@ import { fetchRepo } from "../pipeline/fetchRepo.js";
 import { buildGraph } from "../pipeline/buildGraph.js";
 import { classifyTiers } from "../pipeline/classifyTiers.js";
 import { autoScan } from "../pipeline/autoScan.js";
+import { diagnoseBug } from "../pipeline/diagnoseBug.js";
 import { scanRepo, FULL_SCAN_CONCURRENCY } from "../pipeline/scanRepo.js";
 import { assembleResult } from "../pipeline/assembleResult.js";
 import { assembleFullScanResult } from "../pipeline/assembleFullScanResult.js";
@@ -261,6 +262,9 @@ export async function analyzeRoutes(fastify: FastifyInstance) {
               stage: "detecting_bugs",
               pct: 75,
             });
+            if (body.bugInput?.type === "stackTrace" || body.bugInput?.type === "testFailure" || body.bugInput?.type === "description") {
+              return diagnoseBug(body.bugInput, files, graph);
+            }
             return autoScan(files, graph);
           })(),
         ]);
@@ -293,13 +297,24 @@ export async function analyzeRoutes(fastify: FastifyInstance) {
       const state = getJob(jobId);
       if (!state) return reply.code(404).send({ error: "job_not_found" });
 
+      reply.hijack();
+
+      const allowedOrigins = (process.env.FRONTEND_URLS ?? process.env.FRONTEND_URL ?? "http://localhost:5173,https://latent-twin.vercel.app")
+        .split(",")
+        .map((origin) => origin.trim())
+        .filter(Boolean);
+      const requestOrigin = req.headers.origin;
+      if (requestOrigin && allowedOrigins.includes(requestOrigin)) {
+        reply.raw.setHeader("Access-Control-Allow-Origin", requestOrigin);
+        reply.raw.setHeader("Vary", "Origin");
+      }
+
       // Set SSE headers (Fastify's raw response bypasses standard headers, so we set CORS manually here)
       reply.raw.writeHead(200, {
         "Content-Type": "text/event-stream",
         "Cache-Control": "no-cache",
         Connection: "keep-alive",
         "X-Accel-Buffering": "no",
-        "Access-Control-Allow-Origin": req.headers.origin || "*",
       });
 
       const send = (event: string, data: object) => {

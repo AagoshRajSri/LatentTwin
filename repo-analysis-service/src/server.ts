@@ -20,15 +20,22 @@ const server = Fastify({
 
 // Manual CORS — handles both JSON routes and streaming SSE responses
 server.addHook('onRequest', async (req, reply) => {
-  const origin = req.headers.origin ?? '*';
+  const configuredOrigins = (process.env.FRONTEND_URLS ?? process.env.FRONTEND_URL ?? 'http://localhost:5173,https://latent-twin.vercel.app')
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+  const origin = req.headers.origin;
+  if (origin && configuredOrigins.includes(origin)) {
+    reply.header('Access-Control-Allow-Origin', origin);
+    reply.header('Vary', 'Origin');
+  }
   
-  // Allow all origins (including vercel.app production domains)
-  reply.header('Access-Control-Allow-Origin', origin);
   reply.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   reply.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   
   // Handle preflight
   if (req.method === 'OPTIONS') {
+    if (origin && !configuredOrigins.includes(origin)) return reply.code(403).send();
     return reply.code(204).send();
   }
 });

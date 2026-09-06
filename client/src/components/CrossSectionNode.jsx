@@ -142,7 +142,7 @@ export default function CrossSectionNode({ data, id }) {
       setRepairingLine(key);
 
       try {
-        await fetch(getApiUrl('/api/repair'), {
+        const response = await fetch(getApiUrl('/api/repair'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -153,9 +153,10 @@ export default function CrossSectionNode({ data, id }) {
             lineIdx,
           }),
         });
+        if (!response.ok) throw new Error(`Repair request failed (${response.status})`);
       } catch (_) {
-        // Optimistically resolve in the UI even if the network call fails;
-        // swap this for an error toast if you want the repair to be blocking.
+        setRepairingLine(null);
+        return;
       }
 
       setTimeout(() => {

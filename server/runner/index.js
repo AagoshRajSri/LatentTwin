@@ -39,8 +39,10 @@ function applyPatch(workspacePath, targetFilePath, patchInfo) {
     const { detectedChange, diff } = patchInfo;
     
     // Safety check: ensure target file is within workspace
-    const absoluteTargetPath = path.resolve(workspacePath, targetFilePath);
-    if (!absoluteTargetPath.startsWith(workspacePath)) {
+    const resolvedWorkspacePath = path.resolve(workspacePath);
+    const absoluteTargetPath = path.resolve(resolvedWorkspacePath, targetFilePath);
+    const relativeTargetPath = path.relative(resolvedWorkspacePath, absoluteTargetPath);
+    if (!relativeTargetPath || relativeTargetPath === '..' || relativeTargetPath.startsWith(`..${path.sep}`) || path.isAbsolute(relativeTargetPath)) {
         throw new Error('Invalid target path: escapes workspace');
     }
 
@@ -143,16 +145,6 @@ function runValidation(workspacePath, targetFilePath) {
     }
 
     try {
-    // Run npm install first to ensure dependencies are present in temp dir if needed
-    // For the demo system, it might just be vanilla js, but safe to try install if package.json exists
-    if (fs.existsSync(packageJsonPath)) {
-        try {
-            execSync('npm install --production=false', { cwd: validationCwd, stdio: 'ignore', timeout: 30000 });
-        } catch (e) {
-            // Ignore npm install errors, maybe no lockfile or no network, we'll try running tests anyway
-        }
-    }
-
     const output = execSync(testCommand, { 
         cwd: validationCwd, 
         timeout: 10000, // 10s timeout

@@ -40,7 +40,7 @@ export async function fetchRepo(
     tree = await fetchTreeViaApi(meta.owner, meta.name, meta.commitSha, token);
   } catch (e: any) {
     if (e?.code === 'TREE_TOO_LARGE') {
-      throw new Error(`Repository tree is too large to retrieve via the standard GitHub API. This requires local Git cloning (exceeds the configured limit).`);
+      return cloneAndRead(meta, token);
     }
     if (e?.code === 'API_AUTH_FAILURE') {
       throw new Error(e.message);
@@ -74,6 +74,7 @@ async function fetchContentsViaApi(
   token: string | undefined
 ): Promise<FetchedFile[]> {
   const results: FetchedFile[] = [];
+  const failures: string[] = [];
   // Fetch in parallel, but cap at 10 concurrent to avoid rate limits
   const BATCH = 10;
   for (let i = 0; i < treeFiles.length; i += BATCH) {
@@ -86,7 +87,11 @@ async function fetchContentsViaApi(
     );
     for (const r of settled) {
       if (r.status === 'fulfilled' && r.value) results.push(r.value);
+      else failures.push(r.status === 'rejected' ? String(r.reason) : 'empty response');
     }
+  }
+  if (failures.length > 0) {
+    throw new Error(`Failed to fetch ${failures.length} repository file(s); refusing to analyze an incomplete checkout.`);
   }
   return results;
 }

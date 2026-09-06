@@ -183,11 +183,6 @@ const NODES = [
 
 const TIER_Y = [-0.05, 0.68, 1.4];
 const TIER_RADIUS = [0.62, 0.86, 0.6];
-const NODE_LABEL = Object.fromEntries(NODES.map((n) => [n.id, n.label]));
-const NODE_ACCENT_CSS = Object.fromEntries(
-  NODES.map((n) => [n.id, "#" + n.accent.toString(16).padStart(6, "0")]),
-);
-
 /* ────────────────────────────────────────────────────────────────────────
    CANVAS LABEL TEXTURE for the top identity plate
    ──────────────────────────────────────────────────────────────────────── */

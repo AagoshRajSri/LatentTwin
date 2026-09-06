@@ -13,7 +13,6 @@ import {
   Background,
   useNodesState,
   useEdgesState,
-  addEdge,
   MarkerType,
   useReactFlow,
   ReactFlowProvider,
@@ -28,7 +27,6 @@ import {
   Box,
   GitMerge,
   AlertCircle,
-  Info,
   Zap,
   AlertTriangle,
   RefreshCw,
@@ -36,7 +34,6 @@ import {
   Layers,
   Monitor,
   Hexagon,
-  Lock,
   Search,
   Download,
   X,
@@ -47,7 +44,7 @@ import PipelineScene3D from "./components/PipelineScene3D";
 import ParticleWave from "./components/ParticleWave";
 import { layoutGraph } from "./lib/layoutGraph";
 import { toReactFlowGraph } from "./lib/toReactFlowGraph";
-import { DEMO_NODES, DEMO_EDGES, DEMO_META } from "./lib/demoData.js";
+import { DEMO_NODES, DEMO_EDGES } from "./lib/demoData.js";
 import { exportJSON, exportMarkdown } from "./lib/exportReport.js";
 
 const getApiUrl = (endpoint) => {
@@ -103,7 +100,7 @@ function HighlightText({ text, search }) {
   );
 }
 
-const CustomServiceNode = ({ data, selected, id }) => {
+const CustomServiceNode = ({ data, selected }) => {
   const isImpacted = data.isImpacted;
   const isTarget = data.isTarget;
 
@@ -161,7 +158,7 @@ const CustomServiceNode = ({ data, selected, id }) => {
   );
 };
 
-const CustomInfraNode = ({ data, selected, id }) => {
+const CustomInfraNode = ({ data, selected }) => {
   const isImpacted = data.isImpacted;
   const isTarget = data.isTarget;
 
@@ -515,7 +512,7 @@ function FlowContent() {
         }
       });
 
-      eventSource.addEventListener("done", async (e) => {
+      eventSource.addEventListener("done", async () => {
         eventSource.close();
         try {
           const res = await fetch(getAnalysisApiUrl(`/analyze/${jobId}/result`));
@@ -892,43 +889,6 @@ function FlowContent() {
     setTimeout(() => fitView({ padding: 0.1, duration: 800 }), 100);
   };
 
-  const handleReset = () => {
-    setSimulationResult(null);
-    setRepairData(null);
-    setRepairPanelOpen(false);
-    setApplyResult(null);
-    setSelectedNode(null);
-
-    // Reset visual state of nodes and edges
-    setNodes((nodes) =>
-      nodes.map((n) => ({
-        ...n,
-        style: {
-          ...n.style,
-          opacity: 1,
-          boxShadow:
-            n.data.type === "service"
-              ? "0 4px 6px -1px rgba(59, 130, 246, 0.1), 0 2px 4px -1px rgba(59, 130, 246, 0.06)"
-              : "0 4px 6px -1px rgba(168, 85, 247, 0.1), 0 2px 4px -1px rgba(168, 85, 247, 0.06)",
-        },
-        data: {
-          ...n.data,
-          isBroken: false,
-          isAffected: false,
-        },
-      })),
-    );
-
-    setEdges((edges) =>
-      edges.map((e) => ({
-        ...e,
-        style: { ...e.style, stroke: "#4b5563", strokeWidth: 1, opacity: 1 },
-        animated: true,
-        className: "",
-      })),
-    );
-  };
-
   const handleGenerateRepair = async () => {
     if (!simulationResult) return;
     setLoadingRepair(true);
@@ -1195,7 +1155,7 @@ function FlowContent() {
               {analyzing ? (
                 <>
                   <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  Scanning
+                  {analyzeStage ? `${analyzeStage} ${analyzePct}%` : "Scanning"}
                 </>
               ) : (
                 "Auto-Scan"
@@ -1931,9 +1891,6 @@ function FlowContent() {
                 const nd = selectedNode.data;
                 const bugLines = (nd.layers ?? []).flatMap((l) =>
                   (l.lines ?? []).filter((l) => l.error),
-                );
-                const allLines = (nd.layers ?? []).flatMap(
-                  (l) => l.lines ?? [],
                 );
                 const isImpacted =
                   nd.status === "impacted" ||
