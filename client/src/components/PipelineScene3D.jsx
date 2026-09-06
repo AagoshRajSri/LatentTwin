@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import * as THREE from "three";
+import { Timer } from "three";
 
 /* ────────────────────────────────────────────────────────────────────────
    COLORS
@@ -659,7 +660,7 @@ export default function PipelineScene3D({ analysisData }) {
 
     /* ── animation loop ─────────────────────────────────────── */
     let raf;
-    const clock = new THREE.Clock();
+    const timer = new Timer();
     const tmpColor = new THREE.Color();
     const worldVec = new THREE.Vector3();
     const screenVec = new THREE.Vector3();
@@ -671,8 +672,9 @@ export default function PipelineScene3D({ analysisData }) {
 
     function animate() {
       raf = requestAnimationFrame(animate);
-      const dt = Math.min(clock.getDelta(), 0.05);
-      const t = clock.elapsedTime;
+      timer.update();
+      const dt = Math.min(timer.getDelta(), 0.05);
+      const t = timer.getElapsedTime();
 
       if (!orbit.dragging) {
         orbit.idleTimer += dt;
