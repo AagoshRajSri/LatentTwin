@@ -1111,8 +1111,19 @@ export default function PipelineScene3D({ analysisData }) {
           }
         } else if (activeRef.current) {
           const rig = nodeRig.find((r) => r.id === activeRef.current);
-          orbit.targetLookAt.set(rig.group.position.x, 0.5, 0);
-          orbit.targetRadius = 7.5;
+          if (rig) {
+            orbit.targetLookAt.set(
+              rig.group.position.x,
+              rig.group.position.y + 0.5,
+              rig.group.position.z,
+            );
+            orbit.targetRadius = 7.5;
+          } else {
+            activeRef.current = null;
+            setActiveId(null);
+            orbit.targetLookAt.set(0, -0.2, 0);
+            orbit.targetRadius = 12;
+          }
         } else {
           orbit.targetLookAt.set(0, -0.2, 0);
           orbit.targetRadius = 12;
@@ -1193,9 +1204,12 @@ export default function PipelineScene3D({ analysisData }) {
 
       // ── HTML overlay projection (imperative, no React re-render) ──
       chipLabels.forEach((c) => {
-        const e = nodeRig.find((r) =>
-          r.chipMeshes.includes(c.mesh),
-        ).explodeAmount;
+        const owner = nodeRig.find((r) => r.chipMeshes.includes(c.mesh));
+        if (!owner) {
+          c.el.style.opacity = "0";
+          return;
+        }
+        const e = owner.explodeAmount;
         if (e < 0.05) {
           c.el.style.opacity = "0";
           return;
