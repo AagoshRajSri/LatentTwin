@@ -285,10 +285,7 @@ function FlowContent() {
   useEffect(() => {
     const fetchGraph = async () => {
       try {
-        const [response] = await Promise.all([
-          fetch(getApiUrl('/api/graph')),
-          new Promise(r => setTimeout(r, 1200)) // ensure cool loading plays
-        ]);
+        const response = await fetch(getApiUrl('/api/graph'));
         if (!response.ok) throw new Error('Failed to fetch');
         const data = await response.json();
         setGraphData(data);
