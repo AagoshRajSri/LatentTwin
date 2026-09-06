@@ -674,7 +674,7 @@ export default function PipelineScene3D({ analysisData }) {
       raf = requestAnimationFrame(animate);
       timer.update();
       const dt = Math.min(timer.getDelta(), 0.05);
-      const t = timer.getElapsedTime();
+      const t = timer.getElapsed();
 
       if (!orbit.dragging) {
         orbit.idleTimer += dt;
