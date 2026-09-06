@@ -456,7 +456,11 @@ function FlowContent() {
     } catch (e) {
       console.error(e);
       setAnalyzing(false);
-      alert('Could not start analysis');
+      const apiUrl = getAnalysisApiUrl('/analyze');
+      const isConnFailure = e instanceof TypeError || e.name === 'TypeError';
+      alert(isConnFailure
+        ? `Could not reach the analysis service at ${apiUrl}. Make sure it is running and VITE_ANALYSIS_API_URL points to it.`
+        : 'Could not start analysis');
     }
   };
 
