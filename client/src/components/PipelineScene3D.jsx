@@ -330,10 +330,19 @@ export default function PipelineScene3D({ analysisData }) {
       },
     };
 
-    // Spread blocks evenly: 1 block centered, 2 side-by-side, 3+ spread out
+    // Arrange tiers as a shallow arc instead of a rigid row. The extra Y/Z
+    // separation gives dependency wires room to breathe in the scene.
     const count = sortedTiers.length;
-    const spacing = 6.4;
-    const startX = -((count - 1) / 2) * spacing;
+    const blockPositions = count === 1
+      ? [[0, 0, 0]]
+      : count === 2
+        ? [[-4.4, 0.35, 0.7], [4.4, -0.15, -0.7]]
+        : count === 3
+          ? [[-5.4, 0.15, 0.9], [0, 1.25, 0], [5.4, 0.15, -0.9]]
+          : sortedTiers.map((_, i) => {
+              const angle = Math.PI * (0.15 + (i / (count - 1)) * 0.7);
+              return [Math.cos(angle) * 6, Math.sin(angle) * 1.5, (i - (count - 1) / 2) * -0.7];
+            });
 
     const blocks = sortedTiers.map(([tierKey, tierNodes], i) => {
       const meta = tierMeta[tierKey] ?? tierMeta["other"];
@@ -382,7 +391,9 @@ export default function PipelineScene3D({ analysisData }) {
         glyph: meta.glyph,
         tint: meta.tint,
         accent: meta.accent,
-        x: startX + i * spacing,
+        x: blockPositions[i][0],
+        y: blockPositions[i][1],
+        z: blockPositions[i][2],
         hasError,
         files,
         tiers: [
@@ -495,7 +506,7 @@ export default function PipelineScene3D({ analysisData }) {
 
     sceneNodes.forEach((n) => {
       const group = new THREE.Group();
-      group.position.set(n.x, 0, 0);
+      group.position.set(n.x, n.y || 0, n.z || 0);
       scene.add(group);
 
       const cardMat = new THREE.MeshPhysicalMaterial({
@@ -729,7 +740,7 @@ export default function PipelineScene3D({ analysisData }) {
           to: sceneNodes[i + 1],
         }));
 
-    for (const link of links) {
+    for (const [linkIndex, link] of links.entries()) {
       const fromInfo = fileMeshMap.get(link.source);
       const toInfo = fileMeshMap.get(link.target);
       const from = fromInfo?.node || link.from;
@@ -742,19 +753,26 @@ export default function PipelineScene3D({ analysisData }) {
         ? toInfo.mesh.getWorldPosition(new THREE.Vector3())
         : new THREE.Vector3(to.x - 1.35, -0.35, 0);
       const mid = p0.clone().lerp(p3, 0.5);
+      const delta = p3.clone().sub(p0);
+      const lane = (linkIndex % 5) - 2;
+      const laneOffset = new THREE.Vector3(-delta.y, delta.x, 0).normalize().multiplyScalar(lane * 0.22);
+      laneOffset.z += ((linkIndex % 3) - 1) * 0.18;
+      const lift = 0.35 + Math.min(delta.length() * 0.06, 0.8);
       const curve = new THREE.CatmullRomCurve3([
         p0,
         p0
           .clone()
           .lerp(mid, 0.5)
-          .add(new THREE.Vector3(0, 0.5, 0)),
+          .add(laneOffset)
+          .add(new THREE.Vector3(0, lift, 0)),
         p3
           .clone()
           .lerp(mid, 0.5)
-          .add(new THREE.Vector3(0, 0.5, 0)),
+          .add(laneOffset)
+          .add(new THREE.Vector3(0, lift, 0)),
         p3,
       ]);
-      const geo = new THREE.TubeGeometry(curve, 40, 0.05, 8, false);
+      const geo = new THREE.TubeGeometry(curve, 32, 0.032, 6, false);
       const isErrLink = from.status === "impacted" || to.status === "impacted" || from.hasError || to.hasError;
       const mat = new THREE.MeshBasicMaterial({
         color: isErrLink ? ERROR : HEALTHY,
@@ -763,8 +781,8 @@ export default function PipelineScene3D({ analysisData }) {
       mesh.userData = { kind: "link", isErrLink, nodeA: link.source, nodeB: link.target };
       scene.add(mesh);
 
-      const pulseGeo = new THREE.SphereGeometry(0.085, 10, 10);
-      const pulses = [0, 0.33, 0.66].map((phase) => {
+      const pulseGeo = new THREE.SphereGeometry(0.065, 8, 8);
+      const pulses = [0, 0.5].map((phase) => {
         const pm = new THREE.MeshBasicMaterial({ color: 0xffffff });
         const pmesh = new THREE.Mesh(pulseGeo, pm);
         scene.add(pmesh);
