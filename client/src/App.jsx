@@ -1301,7 +1301,7 @@ function FlowContent() {
       {/* Main Content */}
       <div className="flex flex-1 overflow-hidden relative">
         {viewMode === "3d" ? (
-          <PipelineScene3D analysisData={analysisSnapshot} />
+          <PipelineScene3D analysisData={analysisSnapshot} demoMode={isDemo} />
         ) : (
           <>
             {/* Graph Canvas */}

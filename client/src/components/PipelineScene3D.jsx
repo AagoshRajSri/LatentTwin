@@ -262,7 +262,7 @@ function makeLabelTexture(label, glyph, accentHex) {
 /* ────────────────────────────────────────────────────────────────────────
    MAIN COMPONENT
    ──────────────────────────────────────────────────────────────────────── */
-export default function PipelineScene3D({ analysisData }) {
+export default function PipelineScene3D({ analysisData, demoMode = false }) {
   const mountRef = useRef(null);
   const overlayRef = useRef(null);
   const orbitApiRef = useRef(null);
@@ -278,15 +278,13 @@ export default function PipelineScene3D({ analysisData }) {
   resolvedRef.current = resolved;
   microRef.current = microFile;
 
-  // Build dynamic nodes from analysis data, or fallback to demo NODES
+  // Scanned mode is strict: render only the nodes returned by the analysis job.
+  // The fixture pipeline is available only after the user explicitly chooses Demo.
   const sceneNodes = useMemo(() => {
-    if (
-      !analysisData ||
-      !analysisData.nodes ||
-      analysisData.nodes.length === 0
-    ) {
+    if ((!analysisData || !analysisData.nodes || analysisData.nodes.length === 0) && demoMode) {
       return NODES;
     }
+    if (!analysisData?.nodes?.length) return [];
 
     // Group nodes by tier dynamically
     const tierGroups = new Map();
@@ -735,10 +733,10 @@ export default function PipelineScene3D({ analysisData }) {
     const graphEdges = sceneNodes[0]?.crossEdges || [];
     const links = graphEdges.length > 0
       ? graphEdges.map((edge) => ({ source: edge.source, target: edge.target }))
-      : sceneNodes.slice(0, -1).map((from, i) => ({
+      : demoMode ? sceneNodes.slice(0, -1).map((from, i) => ({
           from,
           to: sceneNodes[i + 1],
-        }));
+        })) : [];
 
     for (const [linkIndex, link] of links.entries()) {
       const fromInfo = fileMeshMap.get(link.source);
@@ -1283,7 +1281,7 @@ export default function PipelineScene3D({ analysisData }) {
       if (mount.contains(renderer.domElement))
         mount.removeChild(renderer.domElement);
     };
-  }, [repair, sceneNodes]);
+  }, [demoMode, repair, sceneNodes]);
 
   return (
     <div
