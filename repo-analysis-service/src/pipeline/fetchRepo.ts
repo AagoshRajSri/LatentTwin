@@ -26,9 +26,10 @@ export interface FetchResult {
 export async function fetchRepo(
   repoUrl: string,
   branch: string | undefined,
-  token: string | undefined
+  token: string | undefined,
+  resolvedMeta?: RepoMeta,
 ): Promise<FetchResult> {
-  const meta = await resolveRepo(repoUrl, branch, token);
+  const meta = resolvedMeta ?? await resolveRepo(repoUrl, branch, token);
 
   if (meta.sizeKb > MAX_REPO_SIZE_KB) {
     throw new Error(`Repo is ${Math.round(meta.sizeKb / 1024)} MB — exceeds the configured limit of ${MAX_REPO_SIZE_MB} MB.`);

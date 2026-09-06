@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import { v4 as uuidv4 } from "uuid";
 import PQueue from "p-queue";
+import crypto from "node:crypto";
 import {
   AnalyzeRequestSchema,
   GraphResultSchema,
@@ -144,6 +145,7 @@ export async function analyzeRoutes(fastify: FastifyInstance) {
             body.repoUrl,
             body.branch,
             body.githubToken,
+            meta,
           );
 
           emitProgress(state, {
@@ -213,7 +215,11 @@ export async function analyzeRoutes(fastify: FastifyInstance) {
           );
           return;
         }
-        const cacheKey = `${meta.owner}/${meta.name}@${meta.commitSha}`;
+        const input = body.bugInput;
+        const inputKey = input?.type === "stackTrace" || input?.type === "testFailure" || input?.type === "description"
+          ? `${input.type}:${crypto.createHash("sha256").update(input.content).digest("hex")}`
+          : "autoScan";
+        const cacheKey = `${meta.owner}/${meta.name}@${meta.commitSha}:${inputKey}`;
         const cached = cacheGet(cacheKey);
         if (cached) {
           finishJob(state, cached);
@@ -225,6 +231,7 @@ export async function analyzeRoutes(fastify: FastifyInstance) {
           body.repoUrl,
           body.branch,
           body.githubToken,
+          meta,
         );
 
         emitProgress(state, { type: "stage", stage: "parsing_graph", pct: 40 });

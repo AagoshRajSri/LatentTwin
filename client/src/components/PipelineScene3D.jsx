@@ -801,7 +801,7 @@ export default function PipelineScene3D({ analysisData, demoMode = false }) {
         el.className = "pl3d-chip";
         el.textContent = fileNameOf(sceneNodes, m.userData.fileId);
         overlay.appendChild(el);
-        chipLabels.push({ el, mesh: m });
+        chipLabels.push({ el, mesh: m, owner: nodeRig.find((r) => r.chipMeshes.includes(m)) });
       });
     });
 
@@ -1202,7 +1202,7 @@ export default function PipelineScene3D({ analysisData, demoMode = false }) {
 
       // ── HTML overlay projection (imperative, no React re-render) ──
       chipLabels.forEach((c) => {
-        const owner = nodeRig.find((r) => r.chipMeshes.includes(c.mesh));
+        const owner = c.owner;
         if (!owner) {
           c.el.style.opacity = "0";
           return;
