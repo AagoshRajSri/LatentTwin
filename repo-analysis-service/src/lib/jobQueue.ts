@@ -47,6 +47,7 @@ export function finishJob(state: JobState, result: unknown): void {
   state.result = result;
   state.emitter.emit('event', { type: 'done', jobId: state.id } satisfies ProgressEvent);
   state.emitter.emit('close');
+  scheduleCleanup(state);
 }
 
 export function failJob(state: JobState, message: string): void {
@@ -54,4 +55,15 @@ export function failJob(state: JobState, message: string): void {
   state.error = message;
   state.emitter.emit('event', { type: 'error', message } satisfies ProgressEvent);
   state.emitter.emit('close');
+  scheduleCleanup(state);
 }
+
+// Keep completed graphs available briefly for SSE reconnects, then release them.
+function scheduleCleanup(state: JobState): void {
+  setTimeout(() => {
+    if (jobs.get(state.id) === state && state.status !== 'queued' && state.status !== 'running') {
+      jobs.delete(state.id);
+    }
+  }, 15 * 60 * 1000).unref();
+}
+

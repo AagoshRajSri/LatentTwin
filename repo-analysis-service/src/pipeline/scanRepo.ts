@@ -16,7 +16,7 @@ import PQueue from "p-queue";
 import { callGemini, callSonnet, FLASH_MODEL } from "../lib/geminiClient.js";
 import type { FetchedFile } from "./fetchRepo.js";
 import type { FileGraph } from "./buildGraph.js";
-import type { DiagnosedLine } from "../schemas/analyzeRequest.js";
+import { DiagnosedLineSchema, type DiagnosedLine } from "../schemas/analyzeRequest.js";
 
 // ────────────────────────────────────────────────────────────
 // Types
@@ -108,16 +108,31 @@ function batchFiles(files: FetchedFile[]): FetchedFile[][] {
   let currentChars = 0;
 
   for (const file of sorted) {
-    // Cap each file's contribution at ~600 lines to control cost
-    const snippet = file.content.split("\n").slice(0, 600).join("\n");
-    const chars = snippet.length + file.path.length + 20; // header overhead
-    if (currentChars + chars > MAX_BATCH_CHARS && current.length > 0) {
-      batches.push(current);
-      current = [];
-      currentChars = 0;
+    const lines = file.content.split("\n");
+    let chunkLines: string[] = [];
+    let chunkChars = 0;
+    const flushChunk = () => {
+      if (chunkLines.length === 0) return;
+      const chunk = chunkLines.join("\n");
+      const chars = chunk.length + file.path.length + 20;
+      if (currentChars + chars > MAX_BATCH_CHARS && current.length > 0) {
+        batches.push(current);
+        current = [];
+        currentChars = 0;
+      }
+      current.push({ ...file, content: chunk });
+      currentChars += chars;
+      chunkLines = [];
+      chunkChars = 0;
+    };
+    for (const line of lines) {
+      if (chunkLines.length > 0 && chunkChars + line.length + 1 > MAX_BATCH_CHARS) {
+        flushChunk();
+      }
+      chunkLines.push(line);
+      chunkChars += line.length + 1;
     }
-    current.push({ ...file, content: snippet });
-    currentChars += chars;
+    flushChunk();
   }
   if (current.length > 0) batches.push(current);
   return batches;
@@ -216,18 +231,13 @@ async function diagnoseCandidate(
   reason: string,
   content: string,
 ): Promise<{ lines: DiagnosedLine[]; role: string }> {
-  // Send the entire file so Gemini can find ALL bugs, not just around lineHint.
-  // Cap at 300 lines to control token cost while covering typical source files.
-  const allLines = content.split("\n");
-  const snippet = allLines.slice(0, 300).join("\n");
-
   const prompt = `File: ${file}
 Known bug area: ${lineHint ? `around line ${lineHint}` : "unknown"}
 Initial suspected bug: ${reason}
 
 Full file source:
 \`\`\`
-${snippet}
+${content}
 \`\`\`
 
 Find ALL genuine bugs in this file (not just the suspected one). For each bug, return the exact broken line, its fix, a hint, and a role label.
@@ -250,14 +260,14 @@ Return [] only if the file is genuinely clean.`;
       }
 
       const role: string = parsed[0]?.role ?? "root cause";
-      const diagLines: DiagnosedLine[] = parsed.map((l: any, i: number) => ({
-        id: l.id ?? `${file.replace(/\W/g, "_")}_${i}`,
-        lineNumber: l.lineNumber,
-        before: l.before,
-        after: l.after,
-        hint: l.hint,
-        error: true,
-      }));
+      const diagLines: DiagnosedLine[] = parsed.flatMap((l: unknown, i: number) => {
+        const checked = DiagnosedLineSchema.safeParse({
+          ...(typeof l === "object" && l !== null ? l : {}),
+          id: (l as any)?.id ?? `${file.replace(/\W/g, "_")}_${i}`,
+          error: true,
+        });
+        return checked.success ? [checked.data] : [];
+      });
       console.log(
         `[diagnoseCandidate] ${file}: found ${diagLines.length} diagnosed lines, role: "${role}"`,
       );

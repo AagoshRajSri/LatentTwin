@@ -339,7 +339,9 @@ function FlowContent() {
 
   useEffect(() => {
     if (!loading && nodes.length > 0) {
-      const frame = requestAnimationFrame(() => fitView({ duration: 500, padding: 0.2 }));
+      const frame = requestAnimationFrame(() =>
+        fitView({ duration: 500, padding: 0.2 }),
+      );
       return () => cancelAnimationFrame(frame);
     }
   }, [fitView, loading, nodes.length]);
@@ -349,7 +351,9 @@ function FlowContent() {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 8000);
       try {
-        const response = await fetch(getApiUrl("/api/graph"), { signal: controller.signal });
+        const response = await fetch(getApiUrl("/api/graph"), {
+          signal: controller.signal,
+        });
         if (!response.ok) throw new Error("Failed to fetch");
         const data = await response.json();
         setGraphData(data);
@@ -453,7 +457,10 @@ function FlowContent() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ repoUrl, bugInput: { type: "fullScan" } }),
       });
-      if (!response.ok) throw new Error("Failed to start analysis");
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || errorData.error || "Failed to start analysis");
+      }
       const { jobId } = await response.json();
 
       const eventSource = new EventSource(
@@ -495,25 +502,34 @@ function FlowContent() {
 
       eventSource.addEventListener("done", async (e) => {
         eventSource.close();
-        const res = await fetch(getAnalysisApiUrl(`/analyze/${jobId}/result`));
-        const data = await res.json();
+        try {
+          const res = await fetch(getAnalysisApiUrl(`/analyze/${jobId}/result`));
+          const data = await res.json();
+          if (!res.ok || !Array.isArray(data.nodes) || !Array.isArray(data.edges)) {
+            throw new Error(data.message || data.error || "The analysis job did not return a valid graph.");
+          }
 
-        const raw = rawAnalysisRef.current;
-        raw.nodes = data.nodes;
-        raw.edges = data.edges;
-        raw.impacted = new Set(
-          data.nodes.filter((n) => n.status === "impacted").map((n) => n.id),
-        );
-        raw.positions = layoutGraph(raw.nodes, raw.edges);
+          const raw = rawAnalysisRef.current;
+          raw.nodes = data.nodes;
+          raw.edges = data.edges;
+          raw.impacted = new Set(
+            data.nodes.filter((n) => n.status === "impacted").map((n) => n.id),
+          );
+          raw.positions = layoutGraph(raw.nodes, raw.edges);
 
-        setAnalysisSnapshot({
-          nodes: raw.nodes,
-          edges: raw.edges,
-          impacted: raw.impacted,
-        });
-        syncReactFlow();
-        setAnalyzing(false);
-        setTimeout(() => fitView({ duration: 800, padding: 0.2 }), 200);
+          setAnalysisSnapshot({
+            nodes: raw.nodes,
+            edges: raw.edges,
+            impacted: raw.impacted,
+          });
+          syncReactFlow();
+          setTimeout(() => fitView({ duration: 800, padding: 0.2 }), 200);
+        } catch (error) {
+          console.error("Analysis result error:", error);
+          alert(error instanceof Error ? error.message : "Analysis failed to return a result.");
+        } finally {
+          setAnalyzing(false);
+        }
       });
 
       eventSource.addEventListener("error", (e) => {
@@ -546,8 +562,36 @@ function FlowContent() {
         }
       });
 
-      eventSource.onerror = () => {
+      eventSource.onerror = async () => {
         eventSource.close();
+        setAnalyzeStage("Reconnecting to analysis...");
+
+        for (let attempt = 0; attempt < 6; attempt += 1) {
+          try {
+            const resultResponse = await fetch(getAnalysisApiUrl(`/analyze/${jobId}/result`));
+            const resultData = await resultResponse.json();
+            if (resultResponse.status === 202) {
+              await new Promise((resolve) => setTimeout(resolve, 1500));
+              continue;
+            }
+            if (!resultResponse.ok) throw new Error(resultData.message || resultData.error || "Analysis failed");
+            if (!Array.isArray(resultData.nodes) || !Array.isArray(resultData.edges)) {
+              throw new Error("Analysis returned an invalid graph");
+            }
+            const raw = rawAnalysisRef.current;
+            raw.nodes = resultData.nodes;
+            raw.edges = resultData.edges;
+            raw.impacted = new Set(resultData.nodes.filter((n) => n.status === "impacted").map((n) => n.id));
+            raw.positions = layoutGraph(raw.nodes, raw.edges);
+            setAnalysisSnapshot({ nodes: raw.nodes, edges: raw.edges, impacted: raw.impacted });
+            syncReactFlow();
+            setTimeout(() => fitView({ duration: 800, padding: 0.2 }), 200);
+            return;
+          } catch (error) {
+            if (attempt === 5) alert(error instanceof Error ? error.message : "Analysis connection lost");
+            else await new Promise((resolve) => setTimeout(resolve, 1500));
+          }
+        }
         setAnalyzing(false);
       };
     } catch (e) {
@@ -1438,9 +1482,12 @@ function FlowContent() {
               ) : nodes.length === 0 ? (
                 <div className="absolute inset-0 z-10 flex items-center justify-center px-6">
                   <div className="max-w-md rounded-xl border border-gray-800 bg-gray-950/90 px-6 py-5 text-center shadow-2xl backdrop-blur-md">
-                    <h2 className="text-sm font-semibold text-gray-100">Architecture view unavailable</h2>
+                    <h2 className="text-sm font-semibold text-gray-100">
+                      Architecture view unavailable
+                    </h2>
                     <p className="mt-2 text-xs leading-5 text-gray-400">
-                      The graph API is taking too long to respond. Try the local demo or check the API deployment.
+                      The graph API is taking too long to respond. Try the local
+                      demo or check the API deployment.
                     </p>
                     <button
                       onClick={loadDemo}

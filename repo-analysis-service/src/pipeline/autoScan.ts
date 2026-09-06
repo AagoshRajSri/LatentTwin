@@ -1,8 +1,8 @@
-import PQueue from 'p-queue';
-import { callSonnet } from '../lib/geminiClient.js';
-import type { FetchedFile } from './fetchRepo.js';
-import type { FileGraph } from './buildGraph.js';
-import type { DiagnosedLine } from '../schemas/analyzeRequest.js';
+import PQueue from "p-queue";
+import { callSonnet } from "../lib/geminiClient.js";
+import type { FetchedFile } from "./fetchRepo.js";
+import type { FileGraph } from "./buildGraph.js";
+import { DiagnosedLineSchema, type DiagnosedLine } from "../schemas/analyzeRequest.js";
 
 export interface AutoScanResult {
   impactedFiles: Set<string>;
@@ -11,11 +11,19 @@ export interface AutoScanResult {
 
 // File extensions worth scanning for logic bugs
 const SCANNABLE_EXTS = new Set([
-  '.ts', '.tsx', '.js', '.jsx', '.py', '.go', '.java', '.rb', '.cs', '.cpp', '.c', '.rs',
+  ".ts",
+  ".tsx",
+  ".js",
+  ".jsx",
+  ".py",
+  ".go",
+  ".java",
+  ".rb",
+  ".cs",
+  ".cpp",
+  ".c",
+  ".rs",
 ]);
-
-// Max lines to send per file to avoid token overflow
-const MAX_LINES_PER_FILE = 120;
 
 const SCAN_SYSTEM = `You are an expert code bug detector.
 Respond with a JSON array only — no prose, no markdown fences, no explanation.
@@ -30,13 +38,10 @@ Do NOT report style issues, naming conventions, or missing comments.`;
 async function scanFile(file: FetchedFile): Promise<DiagnosedLine[] | null> {
   if (!process.env.GEMINI_API_KEY && !process.env.LLM7_API_KEY) return null;
 
-  const lines = file.content.split('\n');
-  const snippet = lines.slice(0, MAX_LINES_PER_FILE).join('\n');
-
   const prompt = `File: ${file.path}
 
 \`\`\`
-${snippet}
+${file.content}
 \`\`\`
 
 Find all genuine bugs in this file. Return [] if the file is clean.`;
@@ -44,21 +49,29 @@ Find all genuine bugs in this file. Return [] if the file is clean.`;
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const raw = await callSonnet(
-        attempt === 0 ? prompt : `${prompt}\n\n(Previous attempt produced invalid JSON. Return ONLY a valid JSON array, nothing else.)`,
-        SCAN_SYSTEM
+        attempt === 0
+          ? prompt
+          : `${prompt}\n\n(Previous attempt produced invalid JSON. Return ONLY a valid JSON array, nothing else.)`,
+        SCAN_SYSTEM,
       );
 
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed) && parsed.length > 0) {
-        return parsed.map((l: any, i: number) => ({
-          ...l,
-          id: l.id ?? `${file.path.replace(/\W/g, '_')}_${i}`,
-          error: true,
-        }));
+        return parsed.flatMap((l: unknown, i: number) => {
+          const checked = DiagnosedLineSchema.safeParse({
+            ...(typeof l === "object" && l !== null ? l : {}),
+            id: (l as any)?.id ?? `${file.path.replace(/\W/g, "_")}_${i}`,
+            error: true,
+          });
+          return checked.success ? [checked.data] : [];
+        });
       }
       return null; // empty array = clean file
     } catch (err) {
-      console.error(`[autoScan] Error scanning ${file.path} (attempt ${attempt + 1}):`, err);
+      console.error(
+        `[autoScan] Error scanning ${file.path} (attempt ${attempt + 1}):`,
+        err,
+      );
     }
   }
   return null;
@@ -66,34 +79,34 @@ Find all genuine bugs in this file. Return [] if the file is clean.`;
 
 export async function autoScan(
   files: FetchedFile[],
-  graph: FileGraph
+  graph: FileGraph,
 ): Promise<AutoScanResult> {
-  const LLM_CONCURRENCY = parseInt(process.env.LLM_CONCURRENCY ?? '5');
+  const LLM_CONCURRENCY = parseInt(process.env.LLM_CONCURRENCY ?? "5");
   const queue = new PQueue({ concurrency: LLM_CONCURRENCY });
   const linesByFile = new Map<string, DiagnosedLine[]>();
 
   // Only scan source files, skip assets, configs, lock files etc.
-  const scannable = files.filter(f => {
-    const ext = f.path.slice(f.path.lastIndexOf('.')).toLowerCase();
-    const base = f.path.split('/').pop() ?? '';
+  const scannable = files.filter((f) => {
+    const ext = f.path.slice(f.path.lastIndexOf(".")).toLowerCase();
+    const base = f.path.split("/").pop() ?? "";
     return (
       SCANNABLE_EXTS.has(ext) &&
-      !base.startsWith('.') &&
-      !f.path.includes('node_modules') &&
-      !f.path.includes('.min.') &&
-      !f.path.includes('dist/') &&
-      !f.path.includes('build/') &&
+      !base.startsWith(".") &&
+      !f.path.includes("node_modules") &&
+      !f.path.includes(".min.") &&
+      !f.path.includes("dist/") &&
+      !f.path.includes("build/") &&
       f.content.trim().length > 0
     );
   });
 
   await Promise.all(
-    scannable.map(file =>
+    scannable.map((file) =>
       queue.add(async () => {
         const bugs = await scanFile(file);
         if (bugs) linesByFile.set(file.path, bugs);
-      })
-    )
+      }),
+    ),
   );
 
   // Walk graph 1-hop from buggy files to mark impacted neighbors

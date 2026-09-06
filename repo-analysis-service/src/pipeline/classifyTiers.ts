@@ -34,7 +34,7 @@ export async function classifyTiers(
     }
   }
 
-  if (unclassified.length === 0 || !process.env.GEMINI_API_KEY) {
+  if (unclassified.length === 0 || (!process.env.GEMINI_API_KEY && !process.env.LLM7_API_KEY)) {
     for (const fp of unclassified) result.set(fp, 'other');
     return result;
   }

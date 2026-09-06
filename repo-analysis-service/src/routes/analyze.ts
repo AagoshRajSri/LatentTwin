@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from "uuid";
 import PQueue from "p-queue";
 import {
   AnalyzeRequestSchema,
+  GraphResultSchema,
   type AnalyzeRequest,
 } from "../schemas/analyzeRequest.js";
 import {
@@ -29,11 +30,32 @@ const fullScanQueue = new PQueue({ concurrency: FULL_SCAN_CONCURRENCY });
 
 // Premium Subscription Limits
 const FREE_TIER_MAX_REPO_SIZE_KB = 50000; // 50MB
+const FREE_SCAN_LIMIT = 2;
 const AI_FIX_LIMIT = 2;
 const AI_FIX_RESET_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 // In-memory usage tracker for AI fixes: IP -> array of timestamps
 const aiFixUsage = new Map<string, number[]>();
+const freeScanUsage = new Map<string, Array<{ repo: string; timestamp: number }>>();
+
+function reserveFreeScan(ip: string, repoUrl: string): { allowed: boolean; retryAfterMs: number } {
+  const now = Date.now();
+  const repo = repoUrl.trim().toLowerCase().replace(/\.git$/, "");
+  const usage = (freeScanUsage.get(ip) ?? []).filter(
+    (entry) => now - entry.timestamp < AI_FIX_RESET_MS,
+  );
+  if (usage.some((entry) => entry.repo === repo)) {
+    freeScanUsage.set(ip, usage);
+    return { allowed: true, retryAfterMs: 0 };
+  }
+  if (usage.length >= FREE_SCAN_LIMIT) {
+    freeScanUsage.set(ip, usage);
+    return { allowed: false, retryAfterMs: AI_FIX_RESET_MS - (now - usage[0].timestamp) };
+  }
+  usage.push({ repo, timestamp: now });
+  freeScanUsage.set(ip, usage);
+  return { allowed: true, retryAfterMs: 0 };
+}
 
 function checkAiFixLimit(ip: string): boolean {
   const now = Date.now();
@@ -61,6 +83,20 @@ export async function analyzeRoutes(fastify: FastifyInstance) {
       console.error("[analyze validation error]:", err, "body:", req.body);
       const message = err instanceof Error ? err.message : "Validation error";
       return reply.code(400).send({ error: "validation_error", message });
+    }
+
+    if (body.bugInput?.type === "fullScan") {
+      const quota = reserveFreeScan(req.ip || req.socket.remoteAddress || "unknown", body.repoUrl);
+      if (!quota.allowed) {
+        return reply
+          .code(402)
+          .header("Retry-After", Math.ceil(quota.retryAfterMs / 1000))
+          .send({
+            error: "premium_required",
+            message: "The free plan includes 2 repository scans per day. Upgrade to Premium or try again tomorrow.",
+            retryAfterSeconds: Math.ceil(quota.retryAfterMs / 1000),
+          });
+      }
     }
 
     const jobId = uuidv4();
@@ -164,7 +200,7 @@ export async function analyzeRoutes(fastify: FastifyInstance) {
             scanResult!,
           );
           cacheSet(cacheKey, result);
-          finishJob(state, result);
+          finishJob(state, GraphResultSchema.parse(result));
           return;
         }
 
@@ -232,7 +268,7 @@ export async function analyzeRoutes(fastify: FastifyInstance) {
         emitProgress(state, { type: "stage", stage: "assembling", pct: 90 });
         const result = assembleResult(meta, files, graph, tiers, diagnosis);
         cacheSet(cacheKey, result);
-        finishJob(state, result);
+        finishJob(state, GraphResultSchema.parse(result));
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : "Analysis failed";
         const safe = message.replace(
