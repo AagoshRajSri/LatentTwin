@@ -228,7 +228,7 @@ function FlowContent() {
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
   const [selectedNode, setSelectedNode] = useState(null);
   const [graphData, setGraphData] = useState(null);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
   const [backendStatus, setBackendStatus] = useState("connecting");
 
@@ -329,8 +329,8 @@ function FlowContent() {
 
   /* Sync global axis mode into all crossSection node data */
   useEffect(() => {
-    // We can just call syncReactFlow if raw data exists, else fallback to standard
-    if (rawAnalysisRef.current.nodes.length > 0) {
+    // Axis layout belongs to Demo or repository analysis, not the landing graph.
+    if (isDemo || analysisSnapshot) {
       syncReactFlow();
     } else {
       setNodes((prev) =>
@@ -341,7 +341,7 @@ function FlowContent() {
         ),
       );
     }
-  }, [csAxisMode, showFullGraph, syncReactFlow]);
+  }, [analysisSnapshot, csAxisMode, isDemo, showFullGraph, syncReactFlow]);
 
   const { fitView } = useReactFlow();
 
@@ -453,6 +453,13 @@ function FlowContent() {
         });
 
         if (demoLockedRef.current) return;
+        rawAnalysisRef.current = {
+          nodes: [],
+          edges: [],
+          positions: {},
+          impacted: new Set(),
+        };
+        setAnalysisSnapshot(null);
         setNodes(rfNodes);
         setEdges(rfEdges);
         setIsDemo(false);
@@ -468,14 +475,19 @@ function FlowContent() {
       }
     };
 
-    loadDemoGraph();
-    setLoading(false);
     fetchGraph();
   }, [loadDemoGraph]);
 
   const handleAnalyzeRepo = async () => {
     if (!repoUrl) return;
     demoLockedRef.current = false;
+    rawAnalysisRef.current = {
+      nodes: [],
+      edges: [],
+      positions: {},
+      impacted: new Set(),
+    };
+    setAnalysisSnapshot(null);
     setIsDemo(false);
     setAnalyzing(true);
     setAnalyzeStage("Starting...");
