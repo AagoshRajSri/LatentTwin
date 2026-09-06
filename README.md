@@ -39,6 +39,12 @@ PORT=3001
 GEMINI_API_KEY=your_gemini_api_key
 ```
 
+For a deployed frontend, deploy `repo-analysis-service` separately and set
+`VITE_ANALYSIS_API_URL` in the frontend hosting provider to its public URL before
+building. The browser cannot reach `localhost:3001` on a user's machine. If the
+frontend host provides a reverse proxy for `/analyze`, `/health`, and the other
+analysis routes, the variable may be left empty.
+
 ### 3. Run LatentTwin
 ```bash
 # Terminal 1: Backend Analysis Microservice

@@ -35,10 +35,11 @@ const getApiUrl = (endpoint) => {
 };
 
 const getAnalysisApiUrl = (endpoint) => {
-  const baseUrl = import.meta.env.VITE_ANALYSIS_API_URL || 'http://localhost:3001';
+  // Production can use a same-origin reverse proxy when no external URL is configured.
+  const baseUrl = import.meta.env.VITE_ANALYSIS_API_URL || (import.meta.env.PROD ? '' : 'http://localhost:3001');
   const cleanBase = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
   const cleanEndpoint = endpoint.startsWith('/') ? endpoint.slice(1) : endpoint;
-  return `${cleanBase}/${cleanEndpoint}`;
+  return cleanBase ? `${cleanBase}/${cleanEndpoint}` : `/${cleanEndpoint}`;
 };
 
 function HighlightText({ text, search }) {
