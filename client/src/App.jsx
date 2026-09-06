@@ -269,6 +269,7 @@ function FlowContent() {
 
   /* ── Demo mode ── */
   const [isDemo, setIsDemo] = useState(false);
+  const demoLockedRef = useRef(false);
 
   /* ── Mascot Welcome Video (First visit of the day or cache cleared) ── */
   const [showMascot, setShowMascot] = useState(false);
@@ -301,7 +302,8 @@ function FlowContent() {
     setEdges(rfEdges);
   }, [csAxisMode, showFullGraph, setNodes, setEdges]);
 
-  const loadDemoGraph = useCallback(() => {
+  const loadDemoGraph = useCallback((lock = false) => {
+    if (lock) demoLockedRef.current = true;
     const raw = rawAnalysisRef.current;
     raw.nodes = DEMO_NODES;
     raw.edges = DEMO_EDGES;
@@ -310,10 +312,20 @@ function FlowContent() {
     );
     raw.positions = layoutGraph(DEMO_NODES, DEMO_EDGES);
     setAnalysisSnapshot({ nodes: raw.nodes, edges: raw.edges, impacted: raw.impacted });
-    syncReactFlow();
+    setGraphData(null);
+    setSelectedNode(null);
+    setSimulationResult(null);
+    setRepairData(null);
+    if (lock) {
+      setNodes([]);
+      setEdges([]);
+      requestAnimationFrame(() => syncReactFlow());
+    } else {
+      syncReactFlow();
+    }
     setIsDemo(true);
     setGraphSearch("");
-  }, [syncReactFlow]);
+  }, [setEdges, setNodes, syncReactFlow]);
 
   /* Sync global axis mode into all crossSection node data */
   useEffect(() => {
@@ -440,8 +452,10 @@ function FlowContent() {
           };
         });
 
+        if (demoLockedRef.current) return;
         setNodes(rfNodes);
         setEdges(rfEdges);
+        setIsDemo(false);
         setBackendStatus("connected");
         setLoading(false);
       } catch (error) {
@@ -454,11 +468,14 @@ function FlowContent() {
       }
     };
 
+    loadDemoGraph();
+    setLoading(false);
     fetchGraph();
   }, [loadDemoGraph]);
 
   const handleAnalyzeRepo = async () => {
     if (!repoUrl) return;
+    demoLockedRef.current = false;
     setIsDemo(false);
     setAnalyzing(true);
     setAnalyzeStage("Starting...");
@@ -621,7 +638,7 @@ function FlowContent() {
 
   /* ── Feature C: Demo Mode ── */
   const loadDemo = useCallback(() => {
-    loadDemoGraph();
+    loadDemoGraph(true);
     setTimeout(() => fitView({ duration: 800, padding: 0.2 }), 200);
   }, [fitView, loadDemoGraph]);
 
