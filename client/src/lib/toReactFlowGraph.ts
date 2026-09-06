@@ -36,7 +36,7 @@ export function toReactFlowGraph(
     .map((node) => {
       const isImpacted = node.status === 'impacted';
       const isDownstream = node.status === 'affected-downstream';
-      const nodeAxisMode = (isImpacted || isDownstream) ? 'z' : csAxisModeGlobal;
+      const nodeAxisMode = csAxisModeGlobal;
 
       // Build real code lines from diagnosed data
       const rawLines = node.lines || [];

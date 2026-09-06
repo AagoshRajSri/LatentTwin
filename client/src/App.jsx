@@ -248,7 +248,12 @@ function FlowContent() {
     const raw = rawAnalysisRef.current;
     if (raw.nodes.length === 0) return;
     const { rfNodes, rfEdges } = toReactFlowGraph(
-      raw.nodes, raw.edges, raw.positions, csAxisMode, raw.impacted, showFullGraph
+      raw.nodes,
+      raw.edges,
+      layoutGraph(raw.nodes, raw.edges, csAxisMode),
+      csAxisMode,
+      raw.impacted,
+      showFullGraph
     );
     setNodes(rfNodes);
     setEdges(rfEdges);

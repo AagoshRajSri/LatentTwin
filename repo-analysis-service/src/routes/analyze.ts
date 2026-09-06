@@ -12,7 +12,7 @@ import { scanRepo, FULL_SCAN_CONCURRENCY } from '../pipeline/scanRepo.js';
 import { assembleResult } from '../pipeline/assembleResult.js';
 import { assembleFullScanResult } from '../pipeline/assembleFullScanResult.js';
 import { resolveRepo } from '../lib/githubClient.js';
-import { callGemini } from '../lib/geminiClient.js';
+import { callSonnet } from '../lib/geminiClient.js';
 
 // Dedicated 1-slot queue for expensive fullScan jobs
 const fullScanQueue = new PQueue({ concurrency: FULL_SCAN_CONCURRENCY });
@@ -243,7 +243,7 @@ For each bug, provide:
 Respond in a clear, structured format. Show the fixed code with proper context (2-3 lines before and after).`;
 
     try {
-      const fix = await callGemini(prompt, 'You are an expert code repair assistant. Provide clear, concise, actionable fixes.');
+      const fix = await callSonnet(prompt, 'You are an expert code repair assistant. Provide clear, concise, actionable fixes.');
       return reply.send({ fix });
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'AI fix failed';

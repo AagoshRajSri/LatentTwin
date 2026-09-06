@@ -13,7 +13,7 @@
 
 import path from 'node:path';
 import PQueue from 'p-queue';
-import { callGemini, FLASH_MODEL } from '../lib/geminiClient.js';
+import { callGemini, callSonnet, FLASH_MODEL } from '../lib/geminiClient.js';
 import type { FetchedFile } from './fetchRepo.js';
 import type { FileGraph } from './buildGraph.js';
 import type { DiagnosedLine } from '../schemas/analyzeRequest.js';
@@ -203,12 +203,11 @@ Return [] only if the file is genuinely clean.`;
 
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      const raw = await callGemini(
+      const raw = await callSonnet(
         attempt === 0
           ? prompt
           : `${prompt}\n\n(Return ONLY a valid JSON array, nothing else.)`,
-        PRECISE_SYSTEM,
-        FLASH_MODEL
+        PRECISE_SYSTEM
       );
       const parsed: any[] = JSON.parse(raw);
       if (!Array.isArray(parsed) || parsed.length === 0) {

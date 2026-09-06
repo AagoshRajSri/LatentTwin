@@ -8,7 +8,10 @@ export async function callHaiku(prompt: string, systemPrompt?: string): Promise<
 }
 
 export async function callSonnet(prompt: string, systemPrompt?: string): Promise<string> {
-  return callGemini(prompt, systemPrompt, FLASH_MODEL); // Fast & capable for structured diffs
+  // LLM7 handles focused diagnosis and repair; Gemini remains the broad scanner.
+  return process.env.LLM7_API_KEY
+    ? callLLM7(prompt, systemPrompt)
+    : callGemini(prompt, systemPrompt, PRO_MODEL);
 }
 
 export async function callGemini(
@@ -19,8 +22,7 @@ export async function callGemini(
   const apiKey = process.env.GEMINI_API_KEY;
   
   if (!apiKey) {
-    console.warn('GEMINI_API_KEY missing, falling back to LLM7.io');
-    return callLLM7(prompt, systemPrompt);
+    throw new Error('GEMINI_API_KEY is required for repository scanning and classification');
   }
 
   const sys = systemPrompt ?? 'Respond with JSON only, no prose, no markdown fences.';
@@ -51,8 +53,7 @@ export async function callGemini(
     });
 
     if (!res.ok) {
-      console.warn(`Gemini API Error (${res.status}), falling back to LLM7.io`);
-      return callLLM7(prompt, systemPrompt);
+      throw new Error(`Gemini API Error (${res.status})`);
     }
 
     const data = (await res.json()) as {
@@ -70,16 +71,17 @@ export async function callGemini(
 
     return text;
   } catch (err) {
-    console.warn(`Gemini fetch failed, falling back to LLM7.io:`, err);
-    return callLLM7(prompt, systemPrompt);
+    throw err;
   } finally {
     clearTimeout(timeout);
   }
 }
 
-async function callLLM7(prompt: string, systemPrompt?: string): Promise<string> {
-  // Use environment variable if present, otherwise default to the provided user token
-  const llm7Key = process.env.LLM7_API_KEY || 'wcISQnBBS8KjpQTge3DH9SBBXQa01RxhqUHhpFMNtAvPXjkeVtq/z9d2Cqyro1HQFpEltqWrE0uhEKLPaU1bRNcQQtqKbxOuDBa3LHLyVvblQby15ESp63kwsVTEAXOj+8t5f3GyYM8jxdwsEg==';
+export async function callLLM7(prompt: string, systemPrompt?: string): Promise<string> {
+  const llm7Key = process.env.LLM7_API_KEY;
+  if (!llm7Key) {
+    throw new Error('LLM7_API_KEY is required for focused diagnosis and repair');
+  }
   
   const url = 'https://api.llm7.io/v1/chat/completions';
   const messages = [];

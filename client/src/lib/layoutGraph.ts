@@ -2,13 +2,20 @@ import dagre from 'dagre';
 
 export function layoutGraph(
   nodes: { id: string }[],
-  edges: { source: string; target: string }[]
+  edges: { source: string; target: string }[],
+  axisMode: string = 'z'
 ): Record<string, { x: number; y: number }> {
   const g = new dagre.graphlib.Graph();
   // Generous ranksep (vertical gap between ranks) and nodesep (gap between
   // nodes in the same rank) so crossSection cards (which can be tall when
   // expanded) never visually collide.
-  g.setGraph({ rankdir: 'LR', ranksep: 200, nodesep: 350, marginx: 60, marginy: 60 });
+  g.setGraph({
+    rankdir: axisMode === 'y' ? 'TB' : 'LR',
+    ranksep: axisMode === 'x' ? 280 : 200,
+    nodesep: axisMode === 'x' ? 180 : 350,
+    marginx: 60,
+    marginy: 60,
+  });
   g.setDefaultEdgeLabel(() => ({}));
 
   // CrossSection cards are ~348px wide × 110px tall in collapsed mode.

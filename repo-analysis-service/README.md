@@ -7,7 +7,7 @@ A lightweight Fastify+TypeScript service that takes a GitHub repo URL (and optio
 ```bash
 cd repo-analysis-service
 cp .env.example .env
-# Fill in GITHUB_TOKEN and ANTHROPIC_API_KEY in .env
+# Fill in GITHUB_TOKEN, GEMINI_API_KEY, and optionally LLM7_API_KEY in .env
 npm install
 npm run dev   # dev with hot-reload via tsx
 npm run build # production build
@@ -22,7 +22,8 @@ Runs on **port 3001** by default (configurable via `PORT` env var). The existing
 |---|---|---|
 | `PORT` | `3001` | Server port |
 | `GITHUB_TOKEN` | — | GitHub PAT — increases API rate limit from 60→5000 req/hr; required for private repos |
-| `ANTHROPIC_API_KEY` | — | Required for LLM tier classification and bug diagnosis. Without it the service still produces graphs but skips LLM steps. |
+| `GEMINI_API_KEY` | — | Required for broad full-repository scanning and architectural tier classification. |
+| `LLM7_API_KEY` | — | Used for focused bug diagnosis and AI repair responses. If omitted, focused tasks use Gemini Pro. |
 | `MAX_CONCURRENT_JOBS` | `3` | p-queue concurrency cap for analysis jobs |
 | `MAX_FILES` | `5000` | Hard rejection limit — repos over this count get a 4xx |
 | `CACHE_DIR` | OS temp dir | Where computed graphs are cached |
