@@ -243,7 +243,7 @@ function FlowContent() {
   const [fixResult, setFixResult] = useState(null);
 
   /* ── Repo Analysis State ── */
-  const [repoUrl, setRepoUrl] = useState("https://github.com/expressjs/morgan");
+  const [repoUrl, setRepoUrl] = useState("");
   const [analyzing, setAnalyzing] = useState(false);
   const [analyzeStage, setAnalyzeStage] = useState("");
   const [analyzePct, setAnalyzePct] = useState(0);
@@ -273,6 +273,23 @@ function FlowContent() {
 
   /* ── Mascot Welcome Video (First visit of the day or cache cleared) ── */
   const [showMascot, setShowMascot] = useState(false);
+
+  const pipelineData = useMemo(() => {
+    if (analysisSnapshot?.nodes?.length) return analysisSnapshot;
+    if (!graphData?.nodes?.length) return null;
+    return {
+      nodes: graphData.nodes.map((node) => ({
+        ...node,
+        id: node.id,
+        label: node.label || node.name || node.id,
+        file: node.file || node.path || node.id,
+        tier: node.tier || "other",
+        status: node.status || "healthy",
+        lines: node.lines || [],
+      })),
+      edges: graphData.edges || [],
+    };
+  }, [analysisSnapshot, graphData]);
 
   useEffect(() => {
     try {
@@ -362,12 +379,12 @@ function FlowContent() {
 
   useEffect(() => {
     if (!loading && nodes.length > 0) {
-      const frame = requestAnimationFrame(() =>
-        fitView({ duration: 500, padding: 0.2 }),
-      );
+      let frame = requestAnimationFrame(() => {
+        frame = requestAnimationFrame(() => fitView({ duration: 500, padding: 0.15 }));
+      });
       return () => cancelAnimationFrame(frame);
     }
-  }, [fitView, loading, nodes.length]);
+  }, [csAxisMode, fitView, loading, nodes.length, showFullGraph]);
 
   useEffect(() => {
     const fetchGraph = async () => {
@@ -1172,7 +1189,7 @@ function FlowContent() {
               type="text"
               value={repoUrl}
               onChange={(e) => setRepoUrl(e.target.value)}
-              placeholder="Paste GitHub repository URL..."
+              placeholder="GitHub repository URL, e.g. expressjs/morgan"
               className="bg-transparent text-xs text-gray-200 px-3 py-1 w-full focus:outline-none placeholder-gray-500 font-mono"
               disabled={analyzing}
             />
@@ -1301,7 +1318,7 @@ function FlowContent() {
       {/* Main Content */}
       <div className="flex flex-1 overflow-hidden relative">
         {viewMode === "3d" ? (
-          <PipelineScene3D analysisData={analysisSnapshot} demoMode={isDemo} />
+          <PipelineScene3D analysisData={pipelineData} demoMode={isDemo} />
         ) : (
           <>
             {/* Graph Canvas */}
