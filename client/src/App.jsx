@@ -304,6 +304,20 @@ function FlowContent() {
     setEdges(rfEdges);
   }, [csAxisMode, showFullGraph, setNodes, setEdges]);
 
+  const loadDemoGraph = useCallback(() => {
+    const raw = rawAnalysisRef.current;
+    raw.nodes = DEMO_NODES;
+    raw.edges = DEMO_EDGES;
+    raw.impacted = new Set(
+      DEMO_NODES.filter((node) => node.status === "impacted").map((node) => node.id),
+    );
+    raw.positions = layoutGraph(DEMO_NODES, DEMO_EDGES);
+    setAnalysisSnapshot({ nodes: raw.nodes, edges: raw.edges, impacted: raw.impacted });
+    syncReactFlow();
+    setIsDemo(true);
+    setGraphSearch("");
+  }, [syncReactFlow]);
+
   /* Sync global axis mode into all crossSection node data */
   useEffect(() => {
     // We can just call syncReactFlow if raw data exists, else fallback to standard
@@ -437,13 +451,14 @@ function FlowContent() {
         console.error("Error fetching graph:", error);
         setBackendStatus("error");
         setLoading(false);
+        loadDemoGraph();
       } finally {
         clearTimeout(timeout);
       }
     };
 
     fetchGraph();
-  }, []);
+  }, [loadDemoGraph]);
 
   const handleAnalyzeRepo = async () => {
     if (!repoUrl) return;
@@ -609,24 +624,9 @@ function FlowContent() {
 
   /* ── Feature C: Demo Mode ── */
   const loadDemo = useCallback(() => {
-    const raw = rawAnalysisRef.current;
-    raw.nodes = DEMO_NODES;
-    raw.edges = DEMO_EDGES;
-    raw.impacted = new Set(
-      DEMO_NODES.filter((n) => n.status === "impacted").map((n) => n.id),
-    );
-    raw.positions = layoutGraph(DEMO_NODES, DEMO_EDGES);
-
-    setAnalysisSnapshot({
-      nodes: raw.nodes,
-      edges: raw.edges,
-      impacted: raw.impacted,
-    });
-    syncReactFlow();
-    setIsDemo(true);
-    setGraphSearch("");
+    loadDemoGraph();
     setTimeout(() => fitView({ duration: 800, padding: 0.2 }), 200);
-  }, [syncReactFlow, fitView]);
+  }, [fitView, loadDemoGraph]);
 
   const handleSimulateBreak = async () => {
     setSimulating(true);
