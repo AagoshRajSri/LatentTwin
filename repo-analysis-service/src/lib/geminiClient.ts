@@ -1,13 +1,19 @@
-import fetch from 'node-fetch';
+import fetch from "node-fetch";
 
-export const FLASH_MODEL = process.env.GEMINI_MODEL || 'gemini-3.6-flash';
-export const PRO_MODEL = process.env.GEMINI_PRO_MODEL || 'gemini-3.6-pro';
+export const FLASH_MODEL = process.env.GEMINI_MODEL || "gemini-3.6-flash";
+export const PRO_MODEL = process.env.GEMINI_PRO_MODEL || "gemini-3.6-pro";
 
-export async function callHaiku(prompt: string, systemPrompt?: string): Promise<string> {
+export async function callHaiku(
+  prompt: string,
+  systemPrompt?: string,
+): Promise<string> {
   return callGemini(prompt, systemPrompt, FLASH_MODEL);
 }
 
-export async function callSonnet(prompt: string, systemPrompt?: string): Promise<string> {
+export async function callSonnet(
+  prompt: string,
+  systemPrompt?: string,
+): Promise<string> {
   // LLM7 handles focused diagnosis and repair; Gemini remains the broad scanner.
   return process.env.LLM7_API_KEY
     ? callLLM7(prompt, systemPrompt)
@@ -17,15 +23,16 @@ export async function callSonnet(prompt: string, systemPrompt?: string): Promise
 export async function callGemini(
   prompt: string,
   systemPrompt?: string,
-  model: string = FLASH_MODEL
+  model: string = FLASH_MODEL,
 ): Promise<string> {
   const apiKey = process.env.GEMINI_API_KEY;
-  
+
   if (!apiKey) {
-    throw new Error('GEMINI_API_KEY is required for repository scanning and classification');
+    return callLLM7(prompt, systemPrompt);
   }
 
-  const sys = systemPrompt ?? 'Respond with JSON only, no prose, no markdown fences.';
+  const sys =
+    systemPrompt ?? "Respond with JSON only, no prose, no markdown fences.";
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 
   const controller = new AbortController();
@@ -34,8 +41,8 @@ export async function callGemini(
   let res: any;
   try {
     res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       signal: controller.signal,
       body: JSON.stringify({
         system_instruction: {
@@ -47,7 +54,7 @@ export async function callGemini(
           },
         ],
         generationConfig: {
-          responseMimeType: 'application/json',
+          responseMimeType: "application/json",
         },
       }),
     });
@@ -66,7 +73,7 @@ export async function callGemini(
 
     const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
     if (!text) {
-      throw new Error('Empty response returned by Gemini API');
+      throw new Error("Empty response returned by Gemini API");
     }
 
     return text;
@@ -77,35 +84,40 @@ export async function callGemini(
   }
 }
 
-export async function callLLM7(prompt: string, systemPrompt?: string): Promise<string> {
+export async function callLLM7(
+  prompt: string,
+  systemPrompt?: string,
+): Promise<string> {
   const llm7Key = process.env.LLM7_API_KEY;
   if (!llm7Key) {
-    throw new Error('LLM7_API_KEY is required for focused diagnosis and repair');
+    throw new Error(
+      "LLM7_API_KEY is required for focused diagnosis and repair",
+    );
   }
-  
-  const url = 'https://api.llm7.io/v1/chat/completions';
+
+  const url = "https://api.llm7.io/v1/chat/completions";
   const messages = [];
-  
+
   if (systemPrompt) {
-    messages.push({ role: 'system', content: systemPrompt });
+    messages.push({ role: "system", content: systemPrompt });
   }
-  messages.push({ role: 'user', content: prompt });
+  messages.push({ role: "user", content: prompt });
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 60000);
 
   try {
     const res = await fetch(url, {
-      method: 'POST',
+      method: "POST",
       headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${llm7Key}`
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${llm7Key}`,
       },
       signal: controller.signal,
       body: JSON.stringify({
-        model: 'default',
+        model: "default",
         messages,
-      })
+      }),
     });
 
     if (!res.ok) {
@@ -113,10 +125,10 @@ export async function callLLM7(prompt: string, systemPrompt?: string): Promise<s
       throw new Error(`LLM7 API Error (${res.status}): ${errText}`);
     }
 
-    const data = await res.json() as any;
+    const data = (await res.json()) as any;
     const text = data?.choices?.[0]?.message?.content;
     if (!text) {
-      throw new Error('Empty response from LLM7 API');
+      throw new Error("Empty response from LLM7 API");
     }
     return text;
   } finally {

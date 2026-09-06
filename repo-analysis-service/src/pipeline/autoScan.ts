@@ -28,7 +28,7 @@ Focus ONLY on genuine bugs: logic errors, state mutations, race conditions, miss
 Do NOT report style issues, naming conventions, or missing comments.`;
 
 async function scanFile(file: FetchedFile): Promise<DiagnosedLine[] | null> {
-  if (!process.env.GEMINI_API_KEY) return null;
+  if (!process.env.GEMINI_API_KEY && !process.env.LLM7_API_KEY) return null;
 
   const lines = file.content.split('\n');
   const snippet = lines.slice(0, MAX_LINES_PER_FILE).join('\n');

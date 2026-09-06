@@ -11,12 +11,12 @@
  *   "context"              — files the buggy file imports (relevant context, not broken)
  */
 
-import path from 'node:path';
-import PQueue from 'p-queue';
-import { callGemini, callSonnet, FLASH_MODEL } from '../lib/geminiClient.js';
-import type { FetchedFile } from './fetchRepo.js';
-import type { FileGraph } from './buildGraph.js';
-import type { DiagnosedLine } from '../schemas/analyzeRequest.js';
+import path from "node:path";
+import PQueue from "p-queue";
+import { callGemini, callSonnet, FLASH_MODEL } from "../lib/geminiClient.js";
+import type { FetchedFile } from "./fetchRepo.js";
+import type { FileGraph } from "./buildGraph.js";
+import type { DiagnosedLine } from "../schemas/analyzeRequest.js";
 
 // ────────────────────────────────────────────────────────────
 // Types
@@ -31,7 +31,7 @@ export interface ScanCandidate {
 
 export interface NodeBlast {
   file: string;
-  status: 'impacted' | 'affected-downstream' | 'context';
+  status: "impacted" | "affected-downstream" | "context";
   role: string;
   lines: DiagnosedLine[];
 }
@@ -48,7 +48,18 @@ export interface FullScanResult {
 // ────────────────────────────────────────────────────────────
 
 const SCANNABLE_EXTS = new Set([
-  '.ts', '.tsx', '.js', '.jsx', '.py', '.go', '.java', '.rb', '.cs', '.cpp', '.c', '.rs',
+  ".ts",
+  ".tsx",
+  ".js",
+  ".jsx",
+  ".py",
+  ".go",
+  ".java",
+  ".rb",
+  ".cs",
+  ".cpp",
+  ".c",
+  ".rs",
 ]);
 
 /** Approx characters per token — conservative for Gemini Flash */
@@ -58,8 +69,17 @@ const MAX_CONTEXT_TOKENS = 80_000;
 const MAX_BATCH_CHARS = MAX_CONTEXT_TOKENS * CHARS_PER_TOKEN;
 
 /** Files to prioritize in batching — src/lib take precedence over tests/vendor */
-const PRIORITY_DIRS = ['src/', 'lib/', 'app/', 'core/', 'server/', 'client/'];
-const LOW_PRIORITY_PATTERNS = ['test', 'spec', '__test__', 'vendor', 'dist/', 'build/', '.min.', 'node_modules'];
+const PRIORITY_DIRS = ["src/", "lib/", "app/", "core/", "server/", "client/"];
+const LOW_PRIORITY_PATTERNS = [
+  "test",
+  "spec",
+  "__test__",
+  "vendor",
+  "dist/",
+  "build/",
+  ".min.",
+  "node_modules",
+];
 const TOP_CANDIDATES_CAP = 3;
 // Only 1 fullScan job in flight at a time — it's expensive
 export const FULL_SCAN_CONCURRENCY = 1;
@@ -68,13 +88,13 @@ function isScannableFile(f: FetchedFile): boolean {
   const ext = path.extname(f.path).toLowerCase();
   return (
     SCANNABLE_EXTS.has(ext) &&
-    !LOW_PRIORITY_PATTERNS.some(p => f.path.includes(p)) &&
+    !LOW_PRIORITY_PATTERNS.some((p) => f.path.includes(p)) &&
     f.content.trim().length > 0
   );
 }
 
 function filePriority(filePath: string): number {
-  if (PRIORITY_DIRS.some(d => filePath.startsWith(d))) return 0;
+  if (PRIORITY_DIRS.some((d) => filePath.startsWith(d))) return 0;
   return 1;
 }
 
@@ -89,7 +109,7 @@ function batchFiles(files: FetchedFile[]): FetchedFile[][] {
 
   for (const file of sorted) {
     // Cap each file's contribution at ~600 lines to control cost
-    const snippet = file.content.split('\n').slice(0, 600).join('\n');
+    const snippet = file.content.split("\n").slice(0, 600).join("\n");
     const chars = snippet.length + file.path.length + 20; // header overhead
     if (currentChars + chars > MAX_BATCH_CHARS && current.length > 0) {
       batches.push(current);
@@ -126,8 +146,8 @@ CRITICAL RULES:
 
 async function sweepBatch(batch: FetchedFile[]): Promise<ScanCandidate[]> {
   const fileDumps = batch
-    .map(f => `// FILE: ${f.path}\n${f.content}`)
-    .join('\n\n// ─────────────────────────────────\n\n');
+    .map((f) => `// FILE: ${f.path}\n${f.content}`)
+    .join("\n\n// ─────────────────────────────────\n\n");
 
   const prompt = `Scan these ${batch.length} source files for real bugs:\n\n${fileDumps}\n\nReturn a JSON array of bugs found.`;
 
@@ -138,27 +158,39 @@ async function sweepBatch(batch: FetchedFile[]): Promise<ScanCandidate[]> {
           ? prompt
           : `${prompt}\n\n(Previous attempt produced invalid JSON. Return ONLY a valid JSON array.)`,
         SWEEP_SYSTEM,
-        FLASH_MODEL
+        FLASH_MODEL,
       );
       const parsed = JSON.parse(raw);
       if (!Array.isArray(parsed)) {
-        console.warn(`[sweepBatch] Gemini returned non-array on attempt ${attempt + 1}:`, raw.slice(0, 200));
+        console.warn(
+          `[sweepBatch] Gemini returned non-array on attempt ${attempt + 1}:`,
+          raw.slice(0, 200),
+        );
         continue;
       }
       const hits = (parsed as any[])
-        .filter(c => typeof c.file === 'string' && typeof c.reason === 'string')
-        .map(c => ({
+        .filter(
+          (c) => typeof c.file === "string" && typeof c.reason === "string",
+        )
+        .map((c) => ({
           file: c.file as string,
-          lineHint: typeof c.lineHint === 'number' ? c.lineHint : undefined,
+          lineHint: typeof c.lineHint === "number" ? c.lineHint : undefined,
           reason: c.reason as string,
-          confidence: typeof c.confidence === 'number' ? c.confidence : 0.5,
+          confidence: typeof c.confidence === "number" ? c.confidence : 0.5,
         }));
-      console.log(`[sweepBatch] Attempt ${attempt + 1}: Gemini returned ${hits.length} candidates`);
+      console.log(
+        `[sweepBatch] Attempt ${attempt + 1}: Gemini returned ${hits.length} candidates`,
+      );
       return hits;
     } catch (err) {
-      console.error(`[sweepBatch] Attempt ${attempt + 1} failed:`, err instanceof Error ? err.message : err);
+      console.error(
+        `[sweepBatch] Attempt ${attempt + 1} failed:`,
+        err instanceof Error ? err.message : err,
+      );
       if (attempt === 1) {
-        console.error('[sweepBatch] Both attempts failed — returning empty for this batch.');
+        console.error(
+          "[sweepBatch] Both attempts failed — returning empty for this batch.",
+        );
       }
     }
   }
@@ -182,15 +214,15 @@ async function diagnoseCandidate(
   file: string,
   lineHint: number | undefined,
   reason: string,
-  content: string
+  content: string,
 ): Promise<{ lines: DiagnosedLine[]; role: string }> {
   // Send the entire file so Gemini can find ALL bugs, not just around lineHint.
   // Cap at 300 lines to control token cost while covering typical source files.
-  const allLines = content.split('\n');
-  const snippet = allLines.slice(0, 300).join('\n');
+  const allLines = content.split("\n");
+  const snippet = allLines.slice(0, 300).join("\n");
 
   const prompt = `File: ${file}
-Known bug area: ${lineHint ? `around line ${lineHint}` : 'unknown'}
+Known bug area: ${lineHint ? `around line ${lineHint}` : "unknown"}
 Initial suspected bug: ${reason}
 
 Full file source:
@@ -207,31 +239,40 @@ Return [] only if the file is genuinely clean.`;
         attempt === 0
           ? prompt
           : `${prompt}\n\n(Return ONLY a valid JSON array, nothing else.)`,
-        PRECISE_SYSTEM
+        PRECISE_SYSTEM,
       );
       const parsed: any[] = JSON.parse(raw);
       if (!Array.isArray(parsed) || parsed.length === 0) {
-        console.log(`[diagnoseCandidate] ${file}: Gemini returned empty/non-array — treating as clean`);
+        console.log(
+          `[diagnoseCandidate] ${file}: Gemini returned empty/non-array — treating as clean`,
+        );
         break;
       }
 
-      const role: string = parsed[0]?.role ?? 'root cause';
+      const role: string = parsed[0]?.role ?? "root cause";
       const diagLines: DiagnosedLine[] = parsed.map((l: any, i: number) => ({
-        id: l.id ?? `${file.replace(/\W/g, '_')}_${i}`,
+        id: l.id ?? `${file.replace(/\W/g, "_")}_${i}`,
         lineNumber: l.lineNumber,
         before: l.before,
         after: l.after,
         hint: l.hint,
         error: true,
       }));
-      console.log(`[diagnoseCandidate] ${file}: found ${diagLines.length} diagnosed lines, role: "${role}"`);
+      console.log(
+        `[diagnoseCandidate] ${file}: found ${diagLines.length} diagnosed lines, role: "${role}"`,
+      );
       return { lines: diagLines, role };
     } catch (err) {
-      console.error(`[diagnoseCandidate] Attempt ${attempt + 1} failed for ${file}:`, err instanceof Error ? err.message : err);
+      console.error(
+        `[diagnoseCandidate] Attempt ${attempt + 1} failed for ${file}:`,
+        err instanceof Error ? err.message : err,
+      );
     }
   }
-  console.warn(`[diagnoseCandidate] ${file}: all attempts failed — returning empty lines`);
-  return { lines: [], role: 'root cause' };
+  console.warn(
+    `[diagnoseCandidate] ${file}: all attempts failed — returning empty lines`,
+  );
+  return { lines: [], role: "root cause" };
 }
 
 // ────────────────────────────────────────────────────────────
@@ -241,8 +282,11 @@ Return [] only if the file is genuinely clean.`;
 function computeBlastRadius(
   buggyFiles: string[],
   graph: FileGraph,
-  diagnosedMap: Map<string, { lines: DiagnosedLine[]; role: string }>
-): { blastRadius: NodeBlast[]; edges: Array<{ source: string; target: string }> } {
+  diagnosedMap: Map<string, { lines: DiagnosedLine[]; role: string }>,
+): {
+  blastRadius: NodeBlast[];
+  edges: Array<{ source: string; target: string }>;
+} {
   const buggySet = new Set(buggyFiles);
 
   // Direct incoming: files that import one of the buggy files (will break)
@@ -266,8 +310,8 @@ function computeBlastRadius(
     const diag = diagnosedMap.get(file);
     blastRadius.push({
       file,
-      status: 'impacted',
-      role: diag?.role ?? 'root cause',
+      status: "impacted",
+      role: diag?.role ?? "root cause",
       lines: diag?.lines ?? [],
     });
   }
@@ -277,7 +321,7 @@ function computeBlastRadius(
     const basename = path.basename(calledBuggy);
     blastRadius.push({
       file,
-      status: 'affected-downstream',
+      status: "affected-downstream",
       role: `calls ${basename}`,
       lines: [],
     });
@@ -288,16 +332,16 @@ function computeBlastRadius(
     const basename = path.basename(buggyImporter);
     blastRadius.push({
       file,
-      status: 'context',
+      status: "context",
       role: `imported by ${basename}`,
       lines: [],
     });
   }
 
   // Edges strictly within the blast radius
-  const blastSet = new Set(blastRadius.map(n => n.file));
+  const blastSet = new Set(blastRadius.map((n) => n.file));
   const edges = graph.edges.filter(
-    e => blastSet.has(e.source) && blastSet.has(e.target)
+    (e) => blastSet.has(e.source) && blastSet.has(e.target),
   );
 
   return { blastRadius, edges };
@@ -309,28 +353,34 @@ function computeBlastRadius(
 
 export async function scanRepo(
   files: FetchedFile[],
-  graph: FileGraph
+  graph: FileGraph,
 ): Promise<FullScanResult> {
-  if (!process.env.GEMINI_API_KEY) {
+  if (!process.env.GEMINI_API_KEY && !process.env.LLM7_API_KEY) {
     throw new Error(
-      'fullScan requires GEMINI_API_KEY to be configured. ' +
-      'Stack-trace, test-failure, and description modes continue to work without it.'
+      "fullScan requires GEMINI_API_KEY or LLM7_API_KEY to be configured.",
     );
   }
 
-  const fileMap = new Map(files.map(f => [f.path, f.content]));
+  const fileMap = new Map(files.map((f) => [f.path, f.content]));
 
   // ── Stage 1: batch sweep ──────────────────────────────────
   const batches = batchFiles(files);
-  console.log(`[scanRepo] Stage 1: ${files.length} total files, ${batches.length} batches to sweep`);
+  console.log(
+    `[scanRepo] Stage 1: ${files.length} total files, ${batches.length} batches to sweep`,
+  );
   const allCandidates: ScanCandidate[] = [];
 
   // Run batches sequentially to respect cost/rate limits
   for (let bi = 0; bi < batches.length; bi++) {
     const batch = batches[bi];
-    console.log(`[scanRepo] Sweeping batch ${bi + 1}/${batches.length} (${batch.length} files)`);
+    console.log(
+      `[scanRepo] Sweeping batch ${bi + 1}/${batches.length} (${batch.length} files)`,
+    );
     const found = await sweepBatch(batch);
-    console.log(`[scanRepo] Batch ${bi + 1} found ${found.length} candidates:`, found.map(c => `${c.file} (${c.confidence})`));
+    console.log(
+      `[scanRepo] Batch ${bi + 1} found ${found.length} candidates:`,
+      found.map((c) => `${c.file} (${c.confidence})`),
+    );
     allCandidates.push(...found);
   }
 
@@ -338,7 +388,9 @@ export async function scanRepo(
 
   if (allCandidates.length === 0) {
     if (batches.length > 0) {
-      console.warn("[scanRepo] Gemini returned 0 candidates. The scanned repository appears to have no critical bugs.");
+      console.warn(
+        "[scanRepo] Gemini returned 0 candidates. The scanned repository appears to have no critical bugs.",
+      );
     }
     return { blastRadius: [], edges: [] };
   }
@@ -350,10 +402,16 @@ export async function scanRepo(
   }
 
   const ranked = [...allCandidates]
-    .filter(c => {
+    .filter((c) => {
       // Validate that the file actually exists in our fetched set
-      const exists = fileMap.has(c.file) || [...fileMap.keys()].some(k => k.endsWith(c.file));
-      if (!exists) console.warn(`[scanRepo] Candidate file not found in fileMap: "${c.file}" — sample keys:`, [...fileMap.keys()].slice(0, 5));
+      const exists =
+        fileMap.has(c.file) ||
+        [...fileMap.keys()].some((k) => k.endsWith(c.file));
+      if (!exists)
+        console.warn(
+          `[scanRepo] Candidate file not found in fileMap: "${c.file}" — sample keys:`,
+          [...fileMap.keys()].slice(0, 5),
+        );
       return exists;
     })
     .sort((a, b) => {
@@ -362,33 +420,45 @@ export async function scanRepo(
       return (inDegree.get(b.file) ?? 0) - (inDegree.get(a.file) ?? 0);
     });
 
-  console.log(`[scanRepo] Ranked after path validation: ${ranked.length} candidates`);
+  console.log(
+    `[scanRepo] Ranked after path validation: ${ranked.length} candidates`,
+  );
 
   // Resolve file paths (Gemini may return basename or partial path)
   function resolveFile(candidate: string): string | null {
     if (fileMap.has(candidate)) return candidate;
-    const match = [...fileMap.keys()].find(k => k.endsWith(candidate) || k.endsWith('/' + candidate));
+    const match = [...fileMap.keys()].find(
+      (k) => k.endsWith(candidate) || k.endsWith("/" + candidate),
+    );
     return match ?? null;
   }
 
   const top = ranked
     .slice(0, TOP_CANDIDATES_CAP)
-    .map(c => ({ ...c, file: resolveFile(c.file) ?? c.file }))
-    .filter(c => fileMap.has(c.file));
+    .map((c) => ({ ...c, file: resolveFile(c.file) ?? c.file }))
+    .filter((c) => fileMap.has(c.file));
 
-  console.log(`[scanRepo] Top candidates after resolution (cap=${TOP_CANDIDATES_CAP}):`, top.map(c => c.file));
+  console.log(
+    `[scanRepo] Top candidates after resolution (cap=${TOP_CANDIDATES_CAP}):`,
+    top.map((c) => c.file),
+  );
 
   if (top.length === 0) {
-    throw new Error("Analysis failed: Model returned file paths that do not match fetched files.");
+    throw new Error(
+      "Analysis failed: Model returned file paths that do not match fetched files.",
+    );
   }
 
   // ── Stage 2: precise diagnosis ────────────────────────────
-  const DIAG_CONCURRENCY = parseInt(process.env.LLM_CONCURRENCY ?? '3');
+  const DIAG_CONCURRENCY = parseInt(process.env.LLM_CONCURRENCY ?? "3");
   const diagQueue = new PQueue({ concurrency: DIAG_CONCURRENCY });
-  const diagnosedMap = new Map<string, { lines: DiagnosedLine[]; role: string }>();
+  const diagnosedMap = new Map<
+    string,
+    { lines: DiagnosedLine[]; role: string }
+  >();
 
   await Promise.all(
-    top.map(candidate =>
+    top.map((candidate) =>
       diagQueue.add(async () => {
         const content = fileMap.get(candidate.file);
         if (!content) return;
@@ -396,11 +466,11 @@ export async function scanRepo(
           candidate.file,
           candidate.lineHint,
           candidate.reason,
-          content
+          content,
         );
         diagnosedMap.set(candidate.file, result);
-      })
-    )
+      }),
+    ),
   );
 
   // ── Stage 3: blast radius ─────────────────────────────────

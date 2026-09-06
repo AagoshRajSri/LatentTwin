@@ -1,3 +1,5 @@
+| `GEMINI_API_KEY` | — | Preferred for broad full-repository scanning and architectural tier classification. |
+| `LLM7_API_KEY` | — | Used for focused bug diagnosis and AI repair responses; also serves as the broad-scan fallback when Gemini is not configured. |
 # Repo Analysis Service
 
 A lightweight Fastify+TypeScript service that takes a GitHub repo URL (and optional bug input) and produces a JSON dependency graph matching exactly what LatentTwin's `CrossSectionNode` component consumes.
@@ -18,24 +20,26 @@ Runs on **port 3001** by default (configurable via `PORT` env var). The existing
 
 ## Environment Variables
 
-| Variable | Default | Description |
-|---|---|---|
-| `PORT` | `3001` | Server port |
-| `GITHUB_TOKEN` | — | GitHub PAT — increases API rate limit from 60→5000 req/hr; required for private repos |
-| `GEMINI_API_KEY` | — | Required for broad full-repository scanning and architectural tier classification. |
-| `LLM7_API_KEY` | — | Used for focused bug diagnosis and AI repair responses. If omitted, focused tasks use Gemini Pro. |
-| `MAX_CONCURRENT_JOBS` | `3` | p-queue concurrency cap for analysis jobs |
-| `MAX_FILES` | `5000` | Hard rejection limit — repos over this count get a 4xx |
-| `CACHE_DIR` | OS temp dir | Where computed graphs are cached |
-| `CACHE_MAX_SIZE_MB` | `2048` | LRU eviction ceiling |
-| `CACHE_TTL_HOURS` | `24` | Cache entry TTL |
-| `CLONE_TIMEOUT_MS` | `30000` | Hard timeout for `git clone` |
-| `LLM_CONCURRENCY` | `5` | Max concurrent Anthropic API calls |
+| Variable              | Default     | Description                                                                                       |
+| --------------------- | ----------- | ------------------------------------------------------------------------------------------------- |
+| `PORT`                | `3001`      | Server port                                                                                       |
+| `GITHUB_TOKEN`        | —           | GitHub PAT — increases API rate limit from 60→5000 req/hr; required for private repos             |
+| `GEMINI_API_KEY`      | —           | Required for broad full-repository scanning and architectural tier classification.                |
+| `LLM7_API_KEY`        | —           | Used for focused bug diagnosis and AI repair responses. If omitted, focused tasks use Gemini Pro. |
+| `MAX_CONCURRENT_JOBS` | `3`         | p-queue concurrency cap for analysis jobs                                                         |
+| `MAX_FILES`           | `5000`      | Hard rejection limit — repos over this count get a 4xx                                            |
+| `CACHE_DIR`           | OS temp dir | Where computed graphs are cached                                                                  |
+| `CACHE_MAX_SIZE_MB`   | `2048`      | LRU eviction ceiling                                                                              |
+| `CACHE_TTL_HOURS`     | `24`        | Cache entry TTL                                                                                   |
+| `CLONE_TIMEOUT_MS`    | `30000`     | Hard timeout for `git clone`                                                                      |
+| `LLM_CONCURRENCY`     | `5`         | Max concurrent Anthropic API calls                                                                |
 
 ## API Endpoints
 
 ### `POST /analyze`
+
 Start an analysis job. Returns immediately.
+
 ```json
 // Request
 {
@@ -52,7 +56,9 @@ Start an analysis job. Returns immediately.
 ```
 
 ### `GET /analyze/:jobId/events`
+
 SSE stream of pipeline progress:
+
 ```
 event: stage
 data: {"stage":"cloning","pct":10}
@@ -62,6 +68,7 @@ data: {"jobId":"uuid"}
 ```
 
 ### `GET /analyze/:jobId/result`
+
 Final graph JSON — directly consumed by the frontend.
 
 ### `GET /health`
@@ -97,6 +104,7 @@ Stage 6: assembleResult → CrossSectionNode-compatible graph JSON, write to cac
 ## Frontend Integration
 
 The service output at `GET /analyze/:jobId/result` maps directly to the `layers` prop of `CrossSectionNode`:
+
 - Each `node` in `nodes[]` becomes a layer
 - `node.lines[]` becomes the line items with `before`/`after`/`hint` diff UI
 - `node.status` drives the `⚠ Impacted` badge
