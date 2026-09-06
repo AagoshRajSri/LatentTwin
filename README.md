@@ -26,6 +26,7 @@
 ## 🚀 Quick Start
 
 ### 1. Install Dependencies
+
 ```bash
 # Install frontend & service dependencies
 cd client && npm install
@@ -33,7 +34,9 @@ cd ../repo-analysis-service && npm install
 ```
 
 ### 2. Environment Setup
+
 Add your Gemini API key in `repo-analysis-service/.env`:
+
 ```env
 PORT=3001
 GEMINI_API_KEY=your_gemini_api_key
@@ -46,6 +49,7 @@ frontend host provides a reverse proxy for `/analyze`, `/health`, and the other
 analysis routes, the variable may be left empty.
 
 ### 3. Run LatentTwin
+
 ```bash
 # Terminal 1: Backend Analysis Microservice
 cd repo-analysis-service && npm run dev

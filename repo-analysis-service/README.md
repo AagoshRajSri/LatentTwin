@@ -1,5 +1,6 @@
 | `GEMINI_API_KEY` | — | Preferred for broad full-repository scanning and architectural tier classification. |
 | `LLM7_API_KEY` | — | Used for focused bug diagnosis and AI repair responses; also serves as the broad-scan fallback when Gemini is not configured. |
+
 # Repo Analysis Service
 
 A lightweight Fastify+TypeScript service that takes a GitHub repo URL (and optional bug input) and produces a JSON dependency graph matching exactly what LatentTwin's `CrossSectionNode` component consumes.
