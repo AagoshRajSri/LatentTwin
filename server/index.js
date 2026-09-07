@@ -1,4 +1,5 @@
 const express = require('express');
+const crypto = require('node:crypto');
 const cors = require('cors');
 const rateLimit = require('express-rate-limit');
 const { getGraph, traverse, simulateBreak } = require('./graph');
@@ -6,6 +7,8 @@ const { generateRepair } = require('./repair');
 const { simulateBreakWithContext } = require('./simulate');
 const { createIsolatedWorkspace, cleanupIsolatedWorkspace, applyPatch, runValidation } = require('./runner');
 const config = require('./config');
+const { errorHandler, asyncHandler, AppError } = require('./middleware/errorHandler');
+const { validateRepoUrl, validateBugInput, validatePatch, validateLegacyOperation, validateGitHubToken } = require('./middleware/validation');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -32,6 +35,20 @@ app.use(cors({
 
 app.set('trust proxy', 1);
 app.use(express.json());
+app.use((req, res, next) => {
+  const requestId = req.get('x-request-id') || crypto.randomUUID();
+  req.requestId = requestId;
+  res.setHeader('x-request-id', requestId);
+  res.on('finish', () => {
+    console.log('[HTTP]', {
+      requestId,
+      method: req.method,
+      path: req.path,
+      statusCode: res.statusCode,
+    });
+  });
+  next();
+});
 
 const strictPaths = [
   '/api/simulate-break',
@@ -88,45 +105,85 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok' });
 });
 
-app.get('/api/graph', (req, res) => {
-  res.json(getGraph());
-});
-
-app.get('/api/graph/traverse', (req, res) => {
-  const startNode = req.query.start || 'auth-service';
-  const result = traverse(startNode);
-  res.json(result);
-});
-
-app.post('/api/simulate-break', (req, res) => {
-  if (req.body && req.body.property && req.body.newProperty) {
-    // Advanced break simulation for the new requirements
-    const result = simulateBreakWithContext(req.body);
-    res.json(result);
-  } else {
-    // Fallback to older behavior
-    const { target = 'auth-service', change = 'rename user_id to userId' } = req.body || {};
-    const result = simulateBreak(target, change);
-    res.json(result);
+app.get('/api/graph', asyncHandler((req, res) => {
+  try {
+    const graph = getGraph();
+    if (!graph) {
+      throw new AppError('Failed to retrieve graph data', 500, 'GRAPH_RETRIEVAL_FAILED');
+    }
+    res.json(graph);
+  } catch (err) {
+    throw new AppError(err.message || 'Failed to get graph', 500, 'GRAPH_ERROR');
   }
-});
+}));
 
-app.post('/api/repair', (req, res) => {
-  if (req.body && req.body.property && req.body.newProperty) {
-    const changeDesc = `rename ${req.body.property} to ${req.body.newProperty}`;
-    const result = generateRepair(req.body.target || 'auth-service', changeDesc);
+app.get('/api/graph/traverse', asyncHandler((req, res) => {
+  try {
+    const startNode = req.query.start || 'auth-service';
+    
+    if (typeof startNode !== 'string' || startNode.trim().length === 0) {
+      throw new AppError('Invalid start node parameter', 400, 'INVALID_START_NODE');
+    }
+
+    const result = traverse(startNode);
+    if (!result) {
+      throw new AppError('Traversal failed', 500, 'TRAVERSAL_FAILED');
+    }
+    
     res.json(result);
-  } else {
-    const { target = 'auth-service', change = 'rename user_id to userId' } = req.body || {};
-    const result = generateRepair(target, change);
-    res.json(result);
+  } catch (err) {
+    if (err instanceof AppError) throw err;
+    throw new AppError(err.message || 'Failed to traverse graph', 500, 'TRAVERSE_ERROR');
   }
-});
+}));
 
-app.post('/api/apply-patch', (req, res) => {
+app.post('/api/simulate-break', validateLegacyOperation, asyncHandler((req, res) => {
+  try {
+    if (!req.body) {
+      throw new AppError('Request body is required', 400, 'MISSING_REQUEST_BODY');
+    }
+
+    const result = req.body.property && req.body.newProperty
+      ? simulateBreakWithContext(req.body)
+      : simulateBreak(req.body.target || 'auth-service', req.body.change || 'rename user_id to userId');
+    
+    if (!result) {
+      throw new AppError('Failed to simulate break', 500, 'SIMULATION_FAILED');
+    }
+
+    res.json(result);
+  } catch (err) {
+    if (err instanceof AppError) throw err;
+    throw new AppError(err.message || 'Simulation error', 500, 'SIMULATE_BREAK_ERROR');
+  }
+}));
+
+app.post('/api/repair', validateLegacyOperation, asyncHandler((req, res) => {
+  try {
+    if (!req.body) {
+      throw new AppError('Request body is required', 400, 'MISSING_REQUEST_BODY');
+    }
+
+    const result = req.body.property && req.body.newProperty
+      ? generateRepair(req.body.target || 'auth-service', `rename ${req.body.property} to ${req.body.newProperty}`)
+      : generateRepair(req.body.target || 'auth-service', req.body.change || 'rename user_id to userId');
+    
+    if (!result) {
+      throw new AppError('Failed to generate repair', 500, 'REPAIR_GENERATION_FAILED');
+    }
+
+    res.json(result);
+  } catch (err) {
+    if (err instanceof AppError) throw err;
+    throw new AppError(err.message || 'Repair generation error', 500, 'REPAIR_ERROR');
+  }
+}));
+
+app.post('/api/apply-patch', validatePatch, asyncHandler((req, res) => {
   const { repairInfo } = req.body;
+
   if (!repairInfo || !repairInfo.targetFilePath) {
-    return res.status(400).json({ error: 'Missing repair information or target file path' });
+    throw new AppError('Missing repair information or target file path', 400, 'MISSING_REPAIR_INFO');
   }
 
   const repoPath = config.isValidRepo() ? config.getRepoPath() : require('path').join(__dirname, '..', 'demo-system');
@@ -135,53 +192,64 @@ app.post('/api/apply-patch', (req, res) => {
   try {
     workspacePath = createIsolatedWorkspace(repoPath);
     
-    // Apply patch
-    // If it's the fallback static demo repair, the targetFilePath is not provided in generateRepair,
-    // we need to set it for the static demo to work.
+    if (!workspacePath) {
+      throw new AppError('Failed to create isolated workspace', 500, 'WORKSPACE_CREATION_FAILED');
+    }
+
+    // Determine target file path
     let targetFilePath = repairInfo.targetFilePath;
     if (!targetFilePath && repairInfo.diff && repairInfo.diff.includes('demo-system/worker-service/index.js')) {
-        targetFilePath = 'worker-service/index.js'; // relative to repoPath
+      targetFilePath = 'worker-service/index.js';
     } else if (targetFilePath) {
-        // if targetFilePath includes repo name e.g. demo-system/worker-service/index.js, trim it
-        const repoName = require('path').basename(repoPath);
-        if (targetFilePath.startsWith(repoName + '/')) {
-            targetFilePath = targetFilePath.substring(repoName.length + 1);
-        }
+      const repoName = require('path').basename(repoPath);
+      if (targetFilePath.startsWith(repoName + '/')) {
+        targetFilePath = targetFilePath.substring(repoName.length + 1);
+      }
     }
 
     if (!targetFilePath) {
-        throw new Error("Could not determine target file path for patch.");
+      throw new AppError('Could not determine target file path for patch', 400, 'INVALID_TARGET_FILE');
     }
 
+    // Apply patch
     applyPatch(workspacePath, targetFilePath, repairInfo);
 
     // Validate
     const validationResult = runValidation(workspacePath, targetFilePath);
 
-    if (validationResult.success) {
-      res.json({
-        status: 'SYSTEM HEALED',
-        message: 'Repair applied and validated successfully.',
-        validationResult
-      });
-    } else {
-      res.json({
-        status: 'REPAIR FAILED',
-        message: 'Validation failed after applying patch.',
-        validationResult
-      });
-    }
-  } catch (error) {
-    res.status(500).json({
-      status: 'REPAIR FAILED',
-      message: error.message
+    res.json({
+      status: validationResult.success ? 'SYSTEM HEALED' : 'REPAIR FAILED',
+      message: validationResult.success 
+        ? 'Repair applied and validated successfully.' 
+        : 'Validation failed after applying patch.',
+      validationResult
     });
+  } catch (err) {
+    if (err instanceof AppError) throw err;
+    
+    const message = err.message || 'Unknown error during patch application';
+    throw new AppError(message, 500, 'PATCH_APPLICATION_ERROR');
   } finally {
     if (workspacePath) {
-      cleanupIsolatedWorkspace(workspacePath);
+      try {
+        const cleaned = cleanupIsolatedWorkspace(workspacePath);
+        if (!cleaned) {
+          console.error('[CLEANUP_ERROR]', { workspacePath, message: 'Workspace cleanup was not confirmed' });
+        }
+      } catch (cleanupErr) {
+        console.error('[CLEANUP_ERROR]', { workspacePath, message: cleanupErr.message });
+      }
     }
   }
+}));
+
+// 404 handler
+app.use((req, res, next) => {
+  throw new AppError(`Route not found: ${req.method} ${req.path}`, 404, 'ROUTE_NOT_FOUND');
 });
+
+// Error handling middleware (MUST be last)
+app.use(errorHandler);
 
 if (require.main === module) {
   app.listen(PORT, '0.0.0.0', () => {

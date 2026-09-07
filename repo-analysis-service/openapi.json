@@ -1,0 +1,62 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "LatentTwin Repository Analysis API",
+    "version": "1.0.0"
+  },
+  "servers": [
+    { "url": "http://localhost:3001" }
+  ],
+  "paths": {
+    "/health": {
+      "get": {
+        "responses": { "200": { "description": "Service is healthy" } }
+      }
+    },
+    "/analyze": {
+      "post": {
+        "summary": "Start repository analysis",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AnalyzeRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": { "description": "Analysis job accepted" },
+          "400": { "$ref": "#/components/responses/ValidationError" },
+          "429": { "$ref": "#/components/responses/RateLimitError" }
+        }
+      }
+    },
+    "/analyze/{jobId}/events": {
+      "get": {
+        "summary": "Stream analysis progress using SSE",
+        "parameters": [{ "name": "jobId", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "text/event-stream" } }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AnalyzeRequest": {
+        "type": "object",
+        "required": ["repoUrl"],
+        "properties": {
+          "repoUrl": { "type": "string", "format": "uri", "description": "HTTPS GitHub repository URL" },
+          "branch": { "type": "string" },
+          "githubToken": { "type": "string", "writeOnly": true },
+          "bugInput": { "type": "object", "required": ["type"], "properties": { "type": { "type": "string", "enum": ["fullScan", "stackTrace", "description", "testFailure"] }, "content": { "type": "string" } } }
+        }
+      }
+    },
+    "responses": {
+      "ValidationError": { "description": "Invalid request", "content": { "application/json": { "schema": { "type": "object", "properties": { "error": { "type": "string" }, "code": { "type": "string" }, "message": { "type": "string" } } } } } },
+      "RateLimitError": { "description": "Too many requests" }
+    }
+  }
+}

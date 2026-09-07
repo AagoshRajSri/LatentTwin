@@ -1,5 +1,4 @@
 import React, {
-  useState,
   useEffect,
   useMemo,
   useCallback,
@@ -18,14 +17,10 @@ import {
   MarkerType,
   useReactFlow,
   ReactFlowProvider,
-  Handle,
-  Position,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import {
   Activity,
-  Database,
-  Server,
   Box,
   GitMerge,
   AlertCircle,
@@ -41,14 +36,20 @@ import {
   X,
   FlaskConical,
 } from "lucide-react";
-import CrossSectionNode from "./components/CrossSectionNode";
 import ParticleWave from "./components/ParticleWave";
 import { layoutGraph } from "./lib/layoutGraph";
 import { toReactFlowGraph } from "./lib/toReactFlowGraph";
 import { DEMO_NODES, DEMO_EDGES } from "./lib/demoData.js";
 import { exportJSON, exportMarkdown } from "./lib/exportReport.js";
+import { LoadingStatus, nodeTypes } from "./components/GraphPrimitives.jsx";
+import { useAppContext } from "./context/AppContext.jsx";
+import { useRepositoryAnalysis } from "./hooks/useRepositoryAnalysis.js";
+import { generateRepair, applyRepair } from "./lib/repairClient.js";
+import { simulateBreak } from "./lib/simulationClient.js";
 
-const PipelineScene3D = React.lazy(() => import("./components/PipelineScene3D.jsx"));
+const PipelineScene3D = React.lazy(
+  () => import("./components/PipelineScene3D.jsx"),
+);
 
 const getApiUrl = (endpoint) => {
   const baseUrl = import.meta.env.VITE_API_URL || "";
@@ -70,208 +71,36 @@ const getAnalysisApiUrl = (endpoint) => {
   return cleanBase ? `${cleanBase}/${cleanEndpoint}` : `/${cleanEndpoint}`;
 };
 
-function HighlightText({ text, search }) {
-  if (!text || typeof text !== "string") return text || null;
-  if (!search || !search.trim()) return text;
-
-  const query = search.trim();
-  const escapedQuery = query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const parts = text.split(new RegExp(`(${escapedQuery})`, "gi"));
-
-  return (
-    <>
-      {parts.map((part, index) =>
-        part.toLowerCase() === query.toLowerCase() ? (
-          <mark
-            key={index}
-            style={{
-              backgroundColor: "#facc15",
-              color: "#09090b",
-              padding: "0 2px",
-              borderRadius: "2px",
-              fontWeight: "bold",
-              boxShadow: "0 0 6px rgba(250, 204, 21, 0.6)",
-            }}
-          >
-            {part}
-          </mark>
-        ) : (
-          part
-        ),
-      )}
-    </>
-  );
-}
-
-function LoadingStatus({ messages = ["Reading the architecture map", "Tracing service boundaries", "Preparing the dependency view"] }) {
-  const [index, setIndex] = useState(0);
-
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setIndex((current) => (current + 1) % messages.length);
-    }, 1800);
-    return () => clearInterval(timer);
-  }, [messages.length]);
-
-  return (
-    <div className="absolute bottom-6 left-0 right-0 z-10 flex justify-center pointer-events-none">
-      <div className="rounded-full border border-gray-800/80 bg-gray-950/80 px-4 py-2 text-[10px] font-mono uppercase tracking-[0.16em] text-gray-500 shadow-lg backdrop-blur-sm">
-        <span className="mr-2 inline-block h-1.5 w-1.5 rounded-full bg-sky-400 animate-pulse" />
-        {messages[index]}
-      </div>
-    </div>
-  );
-}
-
-const CustomServiceNode = ({ data, selected }) => {
-  const isImpacted = data.isImpacted;
-  const isTarget = data.isTarget;
-
-  let borderColor = selected ? "border-blue-500" : "border-gray-700";
-  let bgColor = "bg-gray-900";
-  let badgeColor = "bg-blue-500/10 text-blue-500";
-
-  if (isTarget) {
-    borderColor = "border-amber-500 shadow-md shadow-amber-900/20";
-    bgColor = "bg-amber-950/80";
-    badgeColor = "bg-amber-500/20 text-amber-500";
-  } else if (isImpacted) {
-    borderColor = "border-red-500 shadow-md shadow-red-900/20";
-    bgColor = "bg-red-950/80";
-    badgeColor = "bg-red-500/20 text-red-500";
-  }
-
-  return (
-    <>
-      <Handle
-        type="target"
-        position={Position.Left}
-        id="target"
-        className="w-2 h-2 !bg-gray-500 border-none opacity-0"
-      />
-      <div
-        className={`px-5 py-4 shadow-lg rounded ${bgColor} border ${borderColor} text-white flex items-center gap-4 min-w-[180px] transition-all`}
-      >
-        <div className={`p-2 rounded ${badgeColor}`}>
-          <Server size={18} />
-        </div>
-        <div className="flex flex-col">
-          <span className="font-semibold text-sm flex items-center gap-2 tracking-wide">
-            <HighlightText text={data.label} search={data.searchTerm} />
-            {isImpacted && !isTarget && (
-              <span className="flex h-1.5 w-1.5 rounded-full bg-red-500 animate-pulse" />
-            )}
-          </span>
-          <span className="text-[10px] uppercase font-bold tracking-widest text-gray-500 mt-0.5">
-            {isTarget
-              ? "Target Service"
-              : isImpacted
-                ? "Impacted Service"
-                : "Service"}
-          </span>
-        </div>
-      </div>
-      <Handle
-        type="source"
-        position={Position.Right}
-        id="source"
-        className="w-2 h-2 !bg-gray-500 border-none opacity-0"
-      />
-    </>
-  );
-};
-
-const CustomInfraNode = ({ data, selected }) => {
-  const isImpacted = data.isImpacted;
-  const isTarget = data.isTarget;
-
-  let borderColor = selected ? "border-purple-500" : "border-gray-700";
-  let bgColor = "bg-gray-900";
-  let badgeColor = "bg-purple-500/20 text-purple-400";
-
-  if (isTarget) {
-    borderColor = "border-amber-500 shadow-md shadow-amber-900/20";
-    bgColor = "bg-amber-950/80";
-    badgeColor = "bg-amber-500/20 text-amber-500";
-  } else if (isImpacted) {
-    borderColor = "border-red-500 shadow-md shadow-red-900/20";
-    bgColor = "bg-red-950/80";
-    badgeColor = "bg-red-500/20 text-red-500";
-  }
-
-  return (
-    <>
-      <Handle
-        type="target"
-        position={Position.Left}
-        id="target"
-        className="w-2 h-2 !bg-purple-500 border-none opacity-0"
-      />
-      <div
-        className={`px-5 py-4 shadow-lg rounded ${bgColor} border ${borderColor} text-white flex items-center gap-4 min-w-[180px] transition-all`}
-      >
-        <div className={`p-2 rounded ${badgeColor}`}>
-          <Database size={18} />
-        </div>
-        <div className="flex flex-col">
-          <span className="font-semibold text-sm flex items-center gap-2 tracking-wide">
-            <HighlightText text={data.label} search={data.searchTerm} />
-            {isImpacted && !isTarget && (
-              <span className="flex h-1.5 w-1.5 rounded-full bg-red-500 animate-pulse" />
-            )}
-          </span>
-          <span className="text-[10px] uppercase font-bold tracking-widest text-gray-500 mt-0.5">
-            {isTarget
-              ? "Target Infrastructure"
-              : isImpacted
-                ? "Impacted Infrastructure"
-                : "Infrastructure"}
-          </span>
-        </div>
-      </div>
-      <Handle
-        type="source"
-        position={Position.Right}
-        id="source"
-        className="w-2 h-2 !bg-purple-500 border-none opacity-0"
-      />
-    </>
-  );
-};
-
-const nodeTypes = {
-  service: CustomServiceNode,
-  infrastructure: CustomInfraNode,
-  queue: CustomInfraNode,
-  crossSection: CrossSectionNode,
-};
-
 function FlowContent() {
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
   const stableNodeTypes = useMemo(() => nodeTypes, []);
-  const [selectedNode, setSelectedNode] = useState(null);
-  const [graphData, setGraphData] = useState(null);
-  const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
-  const [backendStatus, setBackendStatus] = useState("connecting");
-
-  const [simulationResult, setSimulationResult] = useState(null);
-  const [simulating, setSimulating] = useState(false);
-  const [repairData, setRepairData] = useState(null);
-  const [loadingRepair, setLoadingRepair] = useState(false);
-  const [repairPanelOpen, setRepairPanelOpen] = useState(false);
-  const [applyingPatch, setApplyingPatch] = useState(false);
-  const [applyResult, setApplyResult] = useState(null);
-  const [fixingNode, setFixingNode] = useState(false);
-  const [fixResult, setFixResult] = useState(null);
+  const { analysis, repair, simulation, ui, setAnalysis, setRepair, setSimulation, setUI } = useAppContext();
+  const { selectedNode, graphData, loading, backendStatus, repoUrl, analyzing, analyzeStage, analyzePct, analysisSnapshot } = analysis;
+  const { simulationResult, simulating } = simulation;
+  const { repairData, loadingRepair, repairPanelOpen, applyingPatch, applyResult, fixingNode, fixResult } = repair;
+  const { showFullGraph, csAxisMode, viewMode, graphSearch, isDemo, showMascot } = ui;
+  const setSelectedNode = (value) => setAnalysis({ selectedNode: value });
+  const setGraphData = (value) => setAnalysis({ graphData: value });
+  const setLoading = (value) => setAnalysis({ loading: value });
+  const setBackendStatus = (value) => setAnalysis({ backendStatus: value });
+  const setRepoUrl = (value) => setAnalysis({ repoUrl: value });
+  const setAnalyzing = (value) => setAnalysis({ analyzing: value });
+  const setAnalyzeStage = (value) => setAnalysis({ analyzeStage: value });
+  const setAnalyzePct = (value) => setAnalysis({ analyzePct: value });
+  const setAnalysisSnapshot = (value) => setAnalysis({ analysisSnapshot: value });
+  const setSimulationResult = (value) => setSimulation({ simulationResult: value });
+  const setSimulating = (value) => setSimulation({ simulating: value });
+  const setRepairData = (value) => setRepair({ repairData: value });
+  const setLoadingRepair = (value) => setRepair({ loadingRepair: value });
+  const setRepairPanelOpen = (value) => setRepair({ repairPanelOpen: value });
+  const setApplyingPatch = (value) => setRepair({ applyingPatch: value });
+  const setApplyResult = (value) => setRepair({ applyResult: value });
+  const setFixingNode = (value) => setRepair({ fixingNode: value });
+  const setFixResult = (value) => setRepair({ fixResult: value });
 
   /* ── Repo Analysis State ── */
-  const [repoUrl, setRepoUrl] = useState("");
-  const [analyzing, setAnalyzing] = useState(false);
-  const [analyzeStage, setAnalyzeStage] = useState("");
-  const [analyzePct, setAnalyzePct] = useState(0);
-  const [showFullGraph, setShowFullGraph] = useState(false);
   const rawAnalysisRef = React.useRef({
     nodes: [],
     edges: [],
@@ -279,25 +108,19 @@ function FlowContent() {
     impacted: new Set(),
   });
   // analysisSnapshot is a real React state copy — changes trigger re-renders in PipelineScene3D
-  const [analysisSnapshot, setAnalysisSnapshot] = React.useState(null);
-
-  /* ── CrossSection global axis mode ── */
-  const [csAxisMode, setCsAxisMode] = useState("collapsed");
-
-  /* ── Main View Mode ── */
-  const [viewMode, setViewMode] = useState("graph"); // 'graph' or '3d'
-
-  /* ── Graph Search ── */
-  const [graphSearch, setGraphSearch] = useState("");
+  const setShowFullGraph = (value) => setUI({ showFullGraph: value });
+  const setCsAxisMode = (value) => setUI({ csAxisMode: value });
+  const setViewMode = (value) => setUI({ viewMode: value });
+  const setGraphSearch = (value) => setUI({ graphSearch: value });
   const searchInputRef = useRef(null);
 
   /* ── Demo mode ── */
-  const [isDemo, setIsDemo] = useState(false);
+  const setIsDemo = (value) => setUI({ isDemo: value });
   const demoLockedRef = useRef(false);
   const analysisActiveRef = useRef(false);
 
   /* ── Mascot Welcome Video (First visit of the day or cache cleared) ── */
-  const [showMascot, setShowMascot] = useState(false);
+  const setShowMascot = (value) => setUI({ showMascot: value });
 
   const pipelineData = useMemo(() => {
     if (analysisSnapshot?.nodes?.length) return analysisSnapshot;
@@ -344,81 +167,98 @@ function FlowContent() {
     setEdges(rfEdges);
   }, [csAxisMode, showFullGraph, setNodes, setEdges]);
 
-  const applyAnalysisResult = useCallback((result) => {
-    const resultNodes = Array.isArray(result?.nodes) ? result.nodes : [];
-    const resultEdges = Array.isArray(result?.edges) ? result.edges : [];
-    if (resultNodes.length === 0) {
-      throw new Error("The analysis returned no connected files to display.");
-    }
+  const applyAnalysisResult = useCallback(
+    (result) => {
+      const resultNodes = Array.isArray(result?.nodes) ? result.nodes : [];
+      const resultEdges = Array.isArray(result?.edges) ? result.edges : [];
+      if (resultNodes.length === 0) {
+        throw new Error("The analysis returned no connected files to display.");
+      }
 
-    const impacted = new Set(
-      resultNodes
-        .filter((node) =>
-          node.status === "impacted" ||
-          (node.lines || []).some((line) => line.error),
-        )
-        .map((node) => node.id),
-    );
-    const normalizedNodes = resultNodes.map((node) => ({
-      ...node,
-      id: node.id || node.file,
-      file: node.file || node.id,
-      label: node.label || node.file || node.id,
-      tier: node.tier || "other",
-      status: impacted.has(node.id) ? "impacted" : node.status || "healthy",
-      lines: node.lines || [],
-    }));
-    const normalizedEdges = resultEdges.filter(
-      (edge) => edge?.source && edge?.target,
-    );
-    const raw = {
-      nodes: normalizedNodes,
-      edges: normalizedEdges,
-      positions: layoutGraph(normalizedNodes, normalizedEdges),
-      impacted,
-    };
-    rawAnalysisRef.current = raw;
-    setAnalysisSnapshot({ nodes: normalizedNodes, edges: normalizedEdges, impacted });
-    setGraphData(null);
-    setIsDemo(false);
-    setLoading(false);
-    const { rfNodes, rfEdges } = toReactFlowGraph(
-      normalizedNodes,
-      normalizedEdges,
-      raw.positions,
-      csAxisMode,
-      impacted,
-      showFullGraph,
-    );
-    setNodes(rfNodes);
-    setEdges(rfEdges);
-    return rfNodes.length;
-  }, [csAxisMode, setEdges, setNodes, showFullGraph]);
+      const impacted = new Set(
+        resultNodes
+          .filter(
+            (node) =>
+              node.status === "impacted" ||
+              (node.lines || []).some((line) => line.error),
+          )
+          .map((node) => node.id),
+      );
+      const normalizedNodes = resultNodes.map((node) => ({
+        ...node,
+        id: node.id || node.file,
+        file: node.file || node.id,
+        label: node.label || node.file || node.id,
+        tier: node.tier || "other",
+        status: impacted.has(node.id) ? "impacted" : node.status || "healthy",
+        lines: node.lines || [],
+      }));
+      const normalizedEdges = resultEdges.filter(
+        (edge) => edge?.source && edge?.target,
+      );
+      const raw = {
+        nodes: normalizedNodes,
+        edges: normalizedEdges,
+        positions: layoutGraph(normalizedNodes, normalizedEdges),
+        impacted,
+      };
+      rawAnalysisRef.current = raw;
+      setAnalysisSnapshot({
+        nodes: normalizedNodes,
+        edges: normalizedEdges,
+        impacted,
+      });
+      setGraphData(null);
+      setIsDemo(false);
+      setLoading(false);
+      const { rfNodes, rfEdges } = toReactFlowGraph(
+        normalizedNodes,
+        normalizedEdges,
+        raw.positions,
+        csAxisMode,
+        impacted,
+        showFullGraph,
+      );
+      setNodes(rfNodes);
+      setEdges(rfEdges);
+      return rfNodes.length;
+    },
+    [csAxisMode, setEdges, setNodes, showFullGraph],
+  );
 
-  const loadDemoGraph = useCallback((lock = false) => {
-    if (lock) demoLockedRef.current = true;
-    const raw = rawAnalysisRef.current;
-    raw.nodes = DEMO_NODES;
-    raw.edges = DEMO_EDGES;
-    raw.impacted = new Set(
-      DEMO_NODES.filter((node) => node.status === "impacted").map((node) => node.id),
-    );
-    raw.positions = layoutGraph(DEMO_NODES, DEMO_EDGES);
-    setAnalysisSnapshot({ nodes: raw.nodes, edges: raw.edges, impacted: raw.impacted });
-    setGraphData(null);
-    setSelectedNode(null);
-    setSimulationResult(null);
-    setRepairData(null);
-    if (lock) {
-      setNodes([]);
-      setEdges([]);
-      requestAnimationFrame(() => syncReactFlow());
-    } else {
-      syncReactFlow();
-    }
-    setIsDemo(true);
-    setGraphSearch("");
-  }, [setEdges, setNodes, syncReactFlow]);
+  const loadDemoGraph = useCallback(
+    (lock = false) => {
+      if (lock) demoLockedRef.current = true;
+      const raw = rawAnalysisRef.current;
+      raw.nodes = DEMO_NODES;
+      raw.edges = DEMO_EDGES;
+      raw.impacted = new Set(
+        DEMO_NODES.filter((node) => node.status === "impacted").map(
+          (node) => node.id,
+        ),
+      );
+      raw.positions = layoutGraph(DEMO_NODES, DEMO_EDGES);
+      setAnalysisSnapshot({
+        nodes: raw.nodes,
+        edges: raw.edges,
+        impacted: raw.impacted,
+      });
+      setGraphData(null);
+      setSelectedNode(null);
+      setSimulationResult(null);
+      setRepairData(null);
+      if (lock) {
+        setNodes([]);
+        setEdges([]);
+        requestAnimationFrame(() => syncReactFlow());
+      } else {
+        syncReactFlow();
+      }
+      setIsDemo(true);
+      setGraphSearch("");
+    },
+    [setEdges, setNodes, syncReactFlow],
+  );
   const loadDemoGraphRef = useRef(loadDemoGraph);
   loadDemoGraphRef.current = loadDemoGraph;
 
@@ -458,7 +298,9 @@ function FlowContent() {
   useEffect(() => {
     if (!loading && nodes.length > 0) {
       let frame = requestAnimationFrame(() => {
-        frame = requestAnimationFrame(() => fitView({ duration: 500, padding: 0.15 }));
+        frame = requestAnimationFrame(() =>
+          fitView({ duration: 500, padding: 0.15 }),
+        );
       });
       return () => cancelAnimationFrame(frame);
     }
@@ -553,7 +395,8 @@ function FlowContent() {
           };
         });
 
-        if (cancelled || demoLockedRef.current || analysisActiveRef.current) return;
+        if (cancelled || demoLockedRef.current || analysisActiveRef.current)
+          return;
         rawAnalysisRef.current = {
           nodes: [],
           edges: [],
@@ -588,157 +431,65 @@ function FlowContent() {
     };
   }, []);
 
-  const handleAnalyzeRepo = async () => {
-    if (!repoUrl) return;
-    analysisActiveRef.current = true;
-    demoLockedRef.current = false;
-    rawAnalysisRef.current = {
-      nodes: [],
-      edges: [],
-      positions: {},
-      impacted: new Set(),
-    };
-    setAnalysisSnapshot(null);
-    setIsDemo(false);
-    setAnalyzing(true);
-    setAnalyzeStage("Starting...");
-    setAnalyzePct(0);
-    try {
-      const response = await fetch(getAnalysisApiUrl("/analyze"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ repoUrl, bugInput: { type: "fullScan" } }),
-      });
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.message || errorData.error || "Failed to start analysis");
-      }
-      const { jobId } = await response.json();
+  const handleAnalysisStage = useCallback((eventData) => {
+    setAnalyzeStage(eventData.stage || "");
+    setAnalyzePct(eventData.pct || 0);
+    if (eventData.stage === "graphReady" && eventData.graph) {
+      const raw = rawAnalysisRef.current;
+      raw.nodes = eventData.graph.nodes;
+      raw.edges = eventData.graph.edges;
+      raw.positions = layoutGraph(raw.nodes, raw.edges);
+      setAnalysisSnapshot({ nodes: raw.nodes, edges: raw.edges, impacted: raw.impacted });
+      syncReactFlow();
+      setTimeout(() => fitView({ duration: 800, padding: 0.2 }), 100);
+    } else if (eventData.stage === "tiersReady" && eventData.graph?.tiers) {
+      const raw = rawAnalysisRef.current;
+      const tierMap = new Map(eventData.graph.tiers);
+      raw.nodes = raw.nodes.map((node) => ({ ...node, tier: tierMap.get(node.file) || node.tier }));
+      setAnalysisSnapshot({ nodes: raw.nodes, edges: raw.edges, impacted: raw.impacted });
+      syncReactFlow();
+    }
+  }, [fitView, setAnalyzePct, setAnalyzeStage, setAnalysisSnapshot, syncReactFlow]);
 
-      const eventSource = new EventSource(
-        getAnalysisApiUrl(`/analyze/${jobId}/events`),
-      );
+  const handleAnalysisError = useCallback((error) => {
+    const message = error instanceof Error ? error.message : "Analysis failed";
+    setAnalyzing(false);
+    analysisActiveRef.current = false;
+    if (message.includes("rate limit") || message.includes("403") || message.includes("401") || message.includes("authentication failed")) {
+      alert(`GitHub API error: ${message}`);
+    } else if (message.includes("too large") || message.includes("Premium Subscription Required")) {
+      navigate("/premium?feature=Large+Repository+Support");
+    } else {
+      alert(`Analysis error: ${message}`);
+    }
+  }, [navigate]);
 
-      eventSource.addEventListener("stage", (e) => {
-        const eventData = JSON.parse(e.data);
-        setAnalyzeStage(eventData.stage);
-        setAnalyzePct(eventData.pct);
-
-        if (eventData.stage === "graphReady" && eventData.graph) {
-          const raw = rawAnalysisRef.current;
-          raw.nodes = eventData.graph.nodes;
-          raw.edges = eventData.graph.edges;
-          raw.positions = layoutGraph(raw.nodes, raw.edges);
-          setAnalysisSnapshot({
-            nodes: raw.nodes,
-            edges: raw.edges,
-            impacted: raw.impacted,
-          });
-          syncReactFlow();
-          setTimeout(() => fitView({ duration: 800, padding: 0.2 }), 100);
-        } else if (eventData.stage === "tiersReady" && eventData.graph?.tiers) {
-          const tierMap = new Map(eventData.graph.tiers);
-          const raw = rawAnalysisRef.current;
-          raw.nodes = raw.nodes.map((n) => ({
-            ...n,
-            tier: tierMap.get(n.file) || n.tier,
-          }));
-          setAnalysisSnapshot({
-            nodes: raw.nodes,
-            edges: raw.edges,
-            impacted: raw.impacted,
-          });
-          syncReactFlow();
-        }
-      });
-
-      eventSource.addEventListener("done", async () => {
-        eventSource.close();
-        try {
-          const res = await fetch(getAnalysisApiUrl(`/analyze/${jobId}/result`));
-          const data = await res.json();
-          if (!res.ok || !Array.isArray(data.nodes) || !Array.isArray(data.edges)) {
-            throw new Error(data.message || data.error || "The analysis job did not return a valid graph.");
-          }
-
-          applyAnalysisResult(data);
-          setTimeout(() => fitView({ duration: 800, padding: 0.2 }), 200);
-        } catch (error) {
-          console.error("Analysis result error:", error);
-          alert(error instanceof Error ? error.message : "Analysis failed to return a result.");
-        } finally {
-          setAnalyzing(false);
-        }
-      });
-
-      eventSource.addEventListener("error", (e) => {
-        eventSource.close();
-        setAnalyzing(false);
-        try {
-          const eventData = JSON.parse(e.data);
-          const msg = eventData.message || "";
-          // Auth/rate-limit errors — show a clear actionable message, NOT a premium redirect
-          if (
-            msg.includes("rate limit") ||
-            msg.includes("403") ||
-            msg.includes("401") ||
-            msg.includes("authentication failed")
-          ) {
-            alert("GitHub API error: " + msg);
-            // Large-repo errors → premium gate
-          } else if (
-            msg.includes("exceeds the configured limit") ||
-            msg.includes("too large") ||
-            msg.includes("local Git cloning") ||
-            msg.includes("Premium Subscription Required")
-          ) {
-            navigate("/premium?feature=Large+Repository+Support");
-          } else {
-            alert("Analysis error: " + msg);
-          }
-        } catch {
-          // connection error (onerror), not a payload error
-        }
-      });
-
-      eventSource.onerror = async () => {
-        eventSource.close();
-        setAnalyzeStage("Reconnecting to analysis...");
-
-        for (let attempt = 0; attempt < 6; attempt += 1) {
-          try {
-            const resultResponse = await fetch(getAnalysisApiUrl(`/analyze/${jobId}/result`));
-            const resultData = await resultResponse.json();
-            if (resultResponse.status === 202) {
-              await new Promise((resolve) => setTimeout(resolve, 1500));
-              continue;
-            }
-            if (!resultResponse.ok) throw new Error(resultData.message || resultData.error || "Analysis failed");
-            if (!Array.isArray(resultData.nodes) || !Array.isArray(resultData.edges)) {
-              throw new Error("Analysis returned an invalid graph");
-            }
-            applyAnalysisResult(resultData);
-            setTimeout(() => fitView({ duration: 800, padding: 0.2 }), 200);
-            return;
-          } catch (error) {
-            if (attempt === 5) alert(error instanceof Error ? error.message : "Analysis connection lost");
-            else await new Promise((resolve) => setTimeout(resolve, 1500));
-          }
-        }
-        setAnalyzing(false);
-      };
-    } catch (e) {
-      console.error(e);
+  const analysisController = useRepositoryAnalysis({
+    repoUrl,
+    onStart: () => {
+      analysisActiveRef.current = true;
+      demoLockedRef.current = false;
+      rawAnalysisRef.current = { nodes: [], edges: [], positions: {}, impacted: new Set() };
+      setAnalysisSnapshot(null);
+      setIsDemo(false);
+      setAnalyzing(true);
+      setAnalyzeStage("Starting...");
+      setAnalyzePct(0);
+    },
+    onStage: handleAnalysisStage,
+    onResult: (result) => {
+      applyAnalysisResult(result);
+      setTimeout(() => fitView({ duration: 800, padding: 0.2 }), 200);
       setAnalyzing(false);
       analysisActiveRef.current = false;
-      const apiUrl = getAnalysisApiUrl("/analyze");
-      const isConnFailure = e instanceof TypeError || e.name === "TypeError";
-      alert(
-        isConnFailure
-          ? `Could not reach the analysis service at ${apiUrl}. Make sure it is running and VITE_ANALYSIS_API_URL points to it.`
-          : "Could not start analysis",
-      );
-    }
+    },
+    onError: handleAnalysisError,
+    onComplete: () => setAnalyzing(false),
+  });
+
+  const handleAnalyzeRepo = async () => {
+    if (!repoUrl) return;
+    return analysisController.analyze();
   };
 
   /* ── Feature C: Demo Mode ── */
@@ -890,16 +641,7 @@ function FlowContent() {
 
     // Non-demo: call real API
     try {
-      const response = await fetch(getApiUrl("/api/simulate-break"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          target: "auth-service",
-          change: "rename user_id to userId",
-        }),
-      });
-      if (!response.ok) throw new Error("Simulation failed");
-      const data = await response.json();
+      const data = await simulateBreak();
       setSimulationResult(data);
 
       const affectedSet = new Set(data.affectedNodes || []);
@@ -1017,16 +759,10 @@ function FlowContent() {
     setRepairPanelOpen(true);
     setRepairData(null);
     try {
-      const response = await fetch(getApiUrl("/api/repair"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          target: simulationResult.target || "auth-service",
-          change: simulationResult.change || "rename user_id to userId",
-        }),
-      });
-      if (!response.ok) throw new Error("Repair generation failed");
-      const data = await response.json();
+      const data = await generateRepair(
+        simulationResult.target || "auth-service",
+        simulationResult.change || "rename user_id to userId",
+      );
       setRepairData(data);
     } catch (err) {
       console.error("Error generating repair:", err);
@@ -1040,14 +776,7 @@ function FlowContent() {
     setApplyingPatch(true);
     setApplyResult(null);
     try {
-      const response = await fetch(getApiUrl("/api/apply-patch"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          repairInfo: repairData,
-        }),
-      });
-      const data = await response.json();
+      const data = await applyRepair(repairData);
       setApplyResult(data);
 
       if (data.status === "SYSTEM HEALED") {
@@ -1564,7 +1293,10 @@ function FlowContent() {
 
               {loading ? (
                 <>
-                  <div className="absolute inset-0 bg-transparent" aria-hidden="true" />
+                  <div
+                    className="absolute inset-0 bg-transparent"
+                    aria-hidden="true"
+                  />
                   <LoadingStatus />
                 </>
               ) : nodes.length === 0 ? (

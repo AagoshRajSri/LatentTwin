@@ -1,9 +1,12 @@
-import PQueue from 'p-queue';
-import { callSonnet } from '../lib/geminiClient.js';
-import type { BugInput } from '../schemas/analyzeRequest.js';
-import type { FetchedFile } from './fetchRepo.js';
-import type { FileGraph } from './buildGraph.js';
- import { DiagnosedLineSchema, type DiagnosedLine } from '../schemas/analyzeRequest.js';
+import PQueue from "p-queue";
+import { callSonnet } from "../lib/geminiClient.js";
+import type { BugInput } from "../schemas/analyzeRequest.js";
+import type { FetchedFile } from "./fetchRepo.js";
+import type { FileGraph } from "./buildGraph.js";
+import {
+  DiagnosedLineSchema,
+  type DiagnosedLine,
+} from "../schemas/analyzeRequest.js";
 
 export interface BugLocation {
   file: string;
@@ -18,13 +21,13 @@ export interface DiagnosisResult {
 export async function diagnoseBug(
   bugInput: BugInput,
   files: FetchedFile[],
-  graph: FileGraph
+  graph: FileGraph,
 ): Promise<DiagnosisResult> {
   const fileMap = new Map(files.map((f) => [f.path, f.content]));
 
   // Step 1: Find candidate files from the bug input
   let candidates: BugLocation[] = [];
-  if (bugInput.type === 'stackTrace' || bugInput.type === 'testFailure') {
+  if (bugInput.type === "stackTrace" || bugInput.type === "testFailure") {
     candidates = parseStackTrace(bugInput.content, graph.fileSet);
   } else {
     candidates = await descriptionToFiles(bugInput.content, [...graph.fileSet]);
@@ -35,7 +38,7 @@ export async function diagnoseBug(
   }
 
   // Step 2: For each candidate, fetch content and ask Gemini for structured diagnosis
-  const LLM_CONCURRENCY = parseInt(process.env.LLM_CONCURRENCY ?? '5');
+  const LLM_CONCURRENCY = parseInt(process.env.LLM_CONCURRENCY ?? "5");
   const queue = new PQueue({ concurrency: LLM_CONCURRENCY });
   const linesByFile = new Map<string, DiagnosedLine[]>();
 
@@ -46,8 +49,8 @@ export async function diagnoseBug(
         if (!content) return;
         const diagnosed = await diagnoseFile(loc, content, bugInput.content);
         if (diagnosed) linesByFile.set(loc.file, diagnosed);
-      })
-    )
+      }),
+    ),
   );
 
   // Step 3: Walk graph 1-2 hops from diagnosed files to mark impacted neighbors
@@ -69,7 +72,7 @@ function parseStackTrace(content: string, fileSet: Set<string>): BugLocation[] {
     while ((m = pattern.exec(content)) !== null) {
       const [, rawPath, line] = m as unknown as [string, string, string];
       // Strip leading ./ and normalize separators
-      const norm = rawPath.replace(/\\/g, '/').replace(/^\.\//, '');
+      const norm = rawPath.replace(/\\/g, "/").replace(/^\.\//, "");
       // Find in our file set (partial suffix match)
       const match = [...fileSet].find((f) => f.endsWith(norm) || f === norm);
       if (match) {
@@ -81,9 +84,12 @@ function parseStackTrace(content: string, fileSet: Set<string>): BugLocation[] {
   return dedupe(results);
 }
 
-async function descriptionToFiles(description: string, filePaths: string[]): Promise<BugLocation[]> {
+async function descriptionToFiles(
+  description: string,
+  filePaths: string[],
+): Promise<BugLocation[]> {
   if (!process.env.GEMINI_API_KEY && !process.env.LLM7_API_KEY) return [];
-  const sample = filePaths.slice(0, 300).join('\n');
+  const sample = filePaths.slice(0, 300).join("\n");
   const prompt = `Repository file listing (partial):
 ${sample}
 
@@ -95,11 +101,12 @@ Format: [{"file": "path/to/file.ts", "lineNumber": 14}]`;
 
   try {
     const raw = await callSonnet(prompt);
-    console.log('descriptionToFiles raw:', raw);
-    const parsed: Array<{ file: string; lineNumber?: number }> = JSON.parse(raw);
+    console.log("descriptionToFiles raw:", raw);
+    const parsed: Array<{ file: string; lineNumber?: number }> =
+      JSON.parse(raw);
     return parsed.map((p) => ({ file: p.file, lineNumber: p.lineNumber }));
   } catch (err) {
-    console.error('Error in descriptionToFiles:', err);
+    console.error("Error in descriptionToFiles:", err);
     return [];
   }
 }
@@ -111,11 +118,11 @@ Each element must match: {"id": string, "lineNumber": number, "before": string, 
 async function diagnoseFile(
   loc: BugLocation,
   content: string,
-  bugContext: string
+  bugContext: string,
 ): Promise<DiagnosedLine[] | null> {
   if (!process.env.GEMINI_API_KEY && !process.env.LLM7_API_KEY) return null;
 
-  const prompt = `File: ${loc.file}${loc.lineNumber ? ` (around line ${loc.lineNumber})` : ''}
+  const prompt = `File: ${loc.file}${loc.lineNumber ? ` (around line ${loc.lineNumber})` : ""}
 
  Complete file source:
 \`\`\`
@@ -129,23 +136,28 @@ Identify the specific broken lines in this file and produce a repair for each.`;
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const raw = await callSonnet(
-        attempt === 0 ? prompt : `${prompt}\n\n(Previous attempt produced invalid JSON. Return only a valid JSON array.)`,
-        STRUCTURED_SYSTEM
+        attempt === 0
+          ? prompt
+          : `${prompt}\n\n(Previous attempt produced invalid JSON. Return only a valid JSON array.)`,
+        STRUCTURED_SYSTEM,
       );
-      console.log('diagnoseFile raw attempt', attempt, ':', raw);
+      console.log("diagnoseFile raw attempt", attempt, ":", raw);
       const parsed: unknown = JSON.parse(raw);
       if (Array.isArray(parsed)) {
         return parsed.flatMap((line, i) => {
           const checked = DiagnosedLineSchema.safeParse({
-            ...(typeof line === 'object' && line !== null ? line : {}),
-            id: (line as any)?.id ?? `${loc.file.replace(/\W/g, '_')}_${i}`,
+            ...(typeof line === "object" && line !== null ? line : {}),
+            id: (line as any)?.id ?? `${loc.file.replace(/\W/g, "_")}_${i}`,
             error: true,
           });
           return checked.success ? [checked.data] : [];
         });
       }
     } catch (err) {
-      console.error(`[diagnoseBug] Error diagnosing ${loc.file} (attempt ${attempt + 1}):`, err);
+      console.error(
+        `[diagnoseBug] Error diagnosing ${loc.file} (attempt ${attempt + 1}):`,
+        err,
+      );
     }
   }
 

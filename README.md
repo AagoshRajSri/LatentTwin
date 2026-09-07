@@ -57,3 +57,36 @@ cd repo-analysis-service && npm run dev
 # Terminal 2: Frontend Dashboard
 cd client && npm run dev
 ```
+
+## Service API
+
+LatentTwin currently uses two services rather than a single gateway:
+
+- Express application API: `http://localhost:5000/api/*`
+- Fastify repository analysis API: `http://localhost:3001/analyze` or `http://localhost:3001/api/analyze`
+
+The analysis API returns a job ID from `POST /analyze`. Progress and the final
+graph are streamed from `GET /analyze/:jobId/events` as Server-Sent Events.
+`repo-analysis-service/openapi.json` contains the public analysis API contract.
+
+The frontend uses `VITE_API_URL` for the Express API and
+`VITE_ANALYSIS_API_URL` for the Fastify API. In production, set both to public
+HTTPS URLs or configure a reverse proxy for `/api`, `/analyze`, and
+`/health`. Browser clients must never receive `GITHUB_TOKEN` or an LLM API key.
+
+## Configuration
+
+`.env` is loaded by each Node service. Frontend variables belong in
+`client/.env` and must use the `VITE_` prefix. `.env.example` files document
+defaults; real `.env` files override those examples and must not be committed.
+The analysis cache defaults to a 24-hour TTL and is bounded by
+`CACHE_MAX_SIZE_MB`. Both services apply IP-based request limits; a `429`
+response includes `Retry-After`.
+
+Run the full local verification suite with:
+
+```bash
+npm test
+cd repo-analysis-service && npm run build
+cd ../client && npm run lint && npm run build
+```

@@ -16,7 +16,10 @@ import PQueue from "p-queue";
 import { callGemini, callSonnet, FLASH_MODEL } from "../lib/geminiClient.js";
 import type { FetchedFile } from "./fetchRepo.js";
 import type { FileGraph } from "./buildGraph.js";
-import { DiagnosedLineSchema, type DiagnosedLine } from "../schemas/analyzeRequest.js";
+import {
+  DiagnosedLineSchema,
+  type DiagnosedLine,
+} from "../schemas/analyzeRequest.js";
 
 // ────────────────────────────────────────────────────────────
 // Types
@@ -126,7 +129,10 @@ function batchFiles(files: FetchedFile[]): FetchedFile[][] {
       chunkChars = 0;
     };
     for (const line of lines) {
-      if (chunkLines.length > 0 && chunkChars + line.length + 1 > MAX_BATCH_CHARS) {
+      if (
+        chunkLines.length > 0 &&
+        chunkChars + line.length + 1 > MAX_BATCH_CHARS
+      ) {
         flushChunk();
       }
       chunkLines.push(line);
@@ -149,15 +155,16 @@ Each item in the array must be:
 
 - "file": exact path as it appears in the code listing header (e.g. "src/App.jsx")
 - "lineHint": line number of the bug, or null if unknown
-- "reason": concise explanation of the bug (e.g., "missing useEffect dependency array causing infinite re-renders", "direct state mutation using push()", "key collision using Math.random()", "deprecated defaultProps on function component")
+- "reason": concise explanation of the bug (e.g., "missing useEffect dependency array causing infinite re-renders", "direct state mutation using push()", "Math.random() used for React key or ID generation", "deprecated defaultProps on function component")
 - "confidence": number between 0.7 and 1.0
 
 CRITICAL RULES:
-1. Scan EVERY file completely and report ALL suspected bugs. If multiple files have bugs, report all of them.
-2. React Hooks: Look for missing dependency arrays in useEffect, useCallback, and useMemo.
-3. Immutability: Look for direct mutations of React state (e.g. using .push(), .splice(), or direct assignment instead of setter functions).
+1. Scan EVERY file completely and report ALL suspected bugs. If multiple files have bugs, report all of them. Err on the side of reporting more bugs rather than missing them.
+2. React Hooks: Look for missing dependency arrays in useEffect, useCallback, and useMemo. Also look for state mutations inside hooks.
+3. Immutability: Look for direct mutations of React state and objects (e.g. using .push(), .splice(), .pop(), or direct property assignment instead of setter functions or spread operator).
 4. Deprecated APIs: Look for React 19 deprecations, including defaultProps on function components.
-5. Unique Keys: Look for non-unique React keys or duplicate/unsafe ID generation (like Date.now() or Math.random() for items created rapidly).`;
+5. Unique Keys: Look for non-unique React keys or unsafe ID generation. CRITICAL: If you see Math.random() anywhere being used for keys, IDs, or unique identifiers, report it as a high-confidence bug (0.95+).
+6. General Anti-Patterns: Look for index-based keys in lists, missing null checks, unhandled promises, async operations without await, infinite loops, and state that should be refs.`;
 
 async function sweepBatch(batch: FetchedFile[]): Promise<ScanCandidate[]> {
   const fileDumps = batch
@@ -222,8 +229,9 @@ Each element must match: {"id": string, "lineNumber": number, "before": string, 
 - "before": the exact buggy line as it appears in the source
 - "after": the corrected replacement line
 - "hint": concise explanation of why this is a bug and its impact
-- "role": ≤8-word label for this file's role in the bug (e.g. "root cause — direct state mutation")
-Find EVERY genuine bug in the entire file. Do not limit to just the suspected area.`;
+- "role": ≤8-word label for this file's role in the bug (e.g. "root cause — Math.random() for ID generation")
+Find EVERY genuine bug in the entire file. Do not limit to just the suspected area. If no bugs exist, return an empty array.
+STRICT: You must report bugs that actually exist in the code. Do not fabricate bugs, but do not miss real ones either.`;
 
 async function diagnoseCandidate(
   file: string,
@@ -260,14 +268,16 @@ Return [] only if the file is genuinely clean.`;
       }
 
       const role: string = parsed[0]?.role ?? "root cause";
-      const diagLines: DiagnosedLine[] = parsed.flatMap((l: unknown, i: number) => {
-        const checked = DiagnosedLineSchema.safeParse({
-          ...(typeof l === "object" && l !== null ? l : {}),
-          id: (l as any)?.id ?? `${file.replace(/\W/g, "_")}_${i}`,
-          error: true,
-        });
-        return checked.success ? [checked.data] : [];
-      });
+      const diagLines: DiagnosedLine[] = parsed.flatMap(
+        (l: unknown, i: number) => {
+          const checked = DiagnosedLineSchema.safeParse({
+            ...(typeof l === "object" && l !== null ? l : {}),
+            id: (l as any)?.id ?? `${file.replace(/\W/g, "_")}_${i}`,
+            error: true,
+          });
+          return checked.success ? [checked.data] : [];
+        },
+      );
       console.log(
         `[diagnoseCandidate] ${file}: found ${diagLines.length} diagnosed lines, role: "${role}"`,
       );
@@ -396,22 +406,68 @@ export async function scanRepo(
 
   console.log(`[scanRepo] Total raw candidates: ${allCandidates.length}`);
 
+  // Fallback: if AI found nothing, run simple heuristic scan
   if (allCandidates.length === 0) {
-    if (batches.length > 0) {
-      console.warn(
-        "[scanRepo] Gemini returned 0 candidates. The scanned repository appears to have no critical bugs.",
-      );
+    console.warn("[scanRepo] Gemini returned 0 candidates. Running heuristic fallback scan...");
+    
+    // Simple heuristic: look for Math.random used in map/render, push() on state, missing dependency arrays
+    const heuristics: ScanCandidate[] = [];
+    
+    for (const file of files.filter(isScannableFile)) {
+      const content = file.content;
+      
+      // Heuristic 1: Math.random() used for keys in JSX renders
+      // Pattern: Math.random() inside map() or used directly as key attribute
+      if (/\.map\([^)]*\([^)]*\)[^}]*Math\.random|key\s*=\s*\{?\s*Math\.random/.test(content)) {
+        heuristics.push({
+          file: file.path,
+          lineHint: undefined,
+          reason: "Math.random() used for React key generation in map/render (causes key collisions and reconciliation bugs)",
+          confidence: 0.90,
+        });
+      }
+      
+      // Heuristic 2: Direct array mutations (.push, .pop, .splice) on state
+      if (/setState|\.setState|const\s+\w+\s*=\s*\[\s*\.\.\.|this\.state|\[\s*\.\.\.\w+.*\]\.push\(/.test(content) &&
+          /\.push\(|\.pop\(|\.splice\(|\.shift\(|\.unshift\(/.test(content)) {
+        heuristics.push({
+          file: file.path,
+          lineHint: undefined,
+          reason: "Direct array mutation (.push, .pop, .splice) on state array (breaks React re-render detection)",
+          confidence: 0.85,
+        });
+      }
+      
+      // Heuristic 3: useEffect without dependency array (or empty deps on side-effecting hooks)
+      if (/useEffect\(\s*\(\s*\)\s*=>\s*\{/i.test(content) && !/useEffect\([^,]*,[^)]*\]/i.test(content)) {
+        heuristics.push({
+          file: file.path,
+          lineHint: undefined,
+          reason: "useEffect hook without dependency array (causes infinite loops or missing re-runs)",
+          confidence: 0.80,
+        });
+      }
     }
-    const visibleFiles = files.filter((file) => graph.fileSet.has(file.path));
-    return {
-      blastRadius: visibleFiles.map((file) => ({
-        file: file.path,
-        status: "healthy",
-        role: "healthy repository file",
-        lines: [],
-      })),
-      edges: graph.edges,
-    };
+    
+    if (heuristics.length > 0) {
+      console.log(`[scanRepo] Heuristic scan found ${heuristics.length} candidates:`, 
+        heuristics.map((c) => `${c.file} (${c.confidence})`));
+      allCandidates.push(...heuristics);
+    } else {
+      console.warn(
+        "[scanRepo] Both AI and heuristic scans returned 0 bugs. Repository appears clean or all bugs are too subtle for detection.",
+      );
+      const visibleFiles = files.filter((file) => graph.fileSet.has(file.path));
+      return {
+        blastRadius: visibleFiles.map((file) => ({
+          file: file.path,
+          status: "healthy",
+          role: "healthy repository file",
+          lines: [],
+        })),
+        edges: graph.edges,
+      };
+    }
   }
 
   // Rank: by confidence first, then by graph in-degree as tiebreaker

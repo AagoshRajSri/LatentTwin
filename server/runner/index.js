@@ -25,13 +25,17 @@ function createIsolatedWorkspace(repoPath) {
 }
 
 function cleanupIsolatedWorkspace(workspacePath) {
-    if (workspacePath && fs.existsSync(workspacePath) && workspacePath.includes('latentcode-repair-')) {
+    if (!workspacePath || !workspacePath.includes('latentcode-repair-')) return false;
+    if (fs.existsSync(workspacePath)) {
         try {
             fs.rmSync(workspacePath, { recursive: true, force: true });
+            return !fs.existsSync(workspacePath);
         } catch (e) {
             console.error(`Failed to clean up isolated workspace at ${workspacePath}: ${e.message}`);
+            return false;
         }
     }
+    return true;
 }
 
 function applyPatch(workspacePath, targetFilePath, patchInfo) {

@@ -185,7 +185,9 @@ const TIER_Y = [0.5, 1.65, 2.8];
 const TIER_RADIUS = [1.15, 1.55, 1.15];
 
 function serviceNameOf(filePath) {
-  const parts = String(filePath || "").split(/[\\/]/).filter(Boolean);
+  const parts = String(filePath || "")
+    .split(/[\\/]/)
+    .filter(Boolean);
   return parts.length > 1 ? parts[0] : "repository";
 }
 
@@ -194,12 +196,24 @@ function getLayoutPositions(count, mode) {
 
   if (mode === "triangle" && count <= 3) {
     return count === 2
-      ? [[-5, 0.25, 0], [5, 0.25, 0]]
-      : [[0, 1.7, 0], [-6.2, 0.05, 1.2], [6.2, 0.05, -1.2]];
+      ? [
+          [-5, 0.25, 0],
+          [5, 0.25, 0],
+        ]
+      : [
+          [0, 1.7, 0],
+          [-6.2, 0.05, 1.2],
+          [6.2, 0.05, -1.2],
+        ];
   }
 
   if (mode === "square" && count <= 4) {
-    const square = [[-5.4, 0.3, -3.6], [5.4, 0.3, -3.6], [5.4, 0.3, 3.6], [-5.4, 0.3, 3.6]];
+    const square = [
+      [-5.4, 0.3, -3.6],
+      [5.4, 0.3, -3.6],
+      [5.4, 0.3, 3.6],
+      [-5.4, 0.3, 3.6],
+    ];
     return square.slice(0, count);
   }
 
@@ -207,14 +221,22 @@ function getLayoutPositions(count, mode) {
     const radius = Math.max(6, count * 2.2);
     return Array.from({ length: count }, (_, i) => {
       const angle = (i / count) * Math.PI * 2 - Math.PI / 2;
-      return [Math.cos(angle) * radius, 0.45 + Math.sin(angle * 2) * 0.45, Math.sin(angle) * radius];
+      return [
+        Math.cos(angle) * radius,
+        0.45 + Math.sin(angle * 2) * 0.45,
+        Math.sin(angle) * radius,
+      ];
     });
   }
 
   const spacing = Math.max(7.5, Math.min(10, 42 / count));
   return Array.from({ length: count }, (_, i) => {
     const progress = i / (count - 1);
-    return [(progress - 0.5) * spacing * (count - 1), 0.25 + Math.sin(progress * Math.PI) * 0.7, (i % 2 ? -1 : 1) * 0.8];
+    return [
+      (progress - 0.5) * spacing * (count - 1),
+      0.25 + Math.sin(progress * Math.PI) * 0.7,
+      (i % 2 ? -1 : 1) * 0.8,
+    ];
   });
 }
 /* ────────────────────────────────────────────────────────────────────────
@@ -316,7 +338,12 @@ export default function PipelineScene3D({ analysisData, demoMode = false }) {
   // Scanned mode is strict: render only the nodes returned by the analysis job.
   // The fixture pipeline is available only after the user explicitly chooses Demo.
   const sceneNodes = useMemo(() => {
-    if ((!analysisData || !analysisData.nodes || analysisData.nodes.length === 0) && demoMode) {
+    if (
+      (!analysisData ||
+        !analysisData.nodes ||
+        analysisData.nodes.length === 0) &&
+      demoMode
+    ) {
       const positions = getLayoutPositions(NODES.length, layoutMode);
       return NODES.map((node, index) => ({
         ...node,
@@ -336,8 +363,20 @@ export default function PipelineScene3D({ analysisData, demoMode = false }) {
       serviceGroups.get(serviceKey).push(node);
     });
 
-    const tierOrder = ["entrypoint", "api", "core", "logic", "consumer", "infrastructure", "data", "utility", "other"];
-    const sortedServices = [...serviceGroups.entries()].sort(([a], [b]) => a.localeCompare(b));
+    const tierOrder = [
+      "entrypoint",
+      "api",
+      "core",
+      "logic",
+      "consumer",
+      "infrastructure",
+      "data",
+      "utility",
+      "other",
+    ];
+    const sortedServices = [...serviceGroups.entries()].sort(([a], [b]) =>
+      a.localeCompare(b),
+    );
 
     const tierMeta = {
       api: {
@@ -387,14 +426,16 @@ export default function PipelineScene3D({ analysisData, demoMode = false }) {
       const primaryTier = sortedTiers[0]?.[0] || "other";
       const meta = tierMeta[primaryTier] ?? tierMeta.other;
       const hasError = serviceNodes.some(
-        (n) => n.status === "impacted" || (n.lines || []).some((line) => line.error),
+        (n) =>
+          n.status === "impacted" || (n.lines || []).some((line) => line.error),
       );
       const blockIds = new Set(serviceNodes.map((node) => node.id));
 
       const files = serviceNodes.map((node) => {
         const lines = node.lines || [];
         const errLineIdx = lines.findIndex((l) => l.error);
-        const fileStatus = errLineIdx !== -1 ? "impacted" : node.status || "healthy";
+        const fileStatus =
+          errLineIdx !== -1 ? "impacted" : node.status || "healthy";
         const incoming = allEdges.filter((edge) => edge.target === node.id);
         const outgoing = allEdges.filter((edge) => edge.source === node.id);
         return {
@@ -482,7 +523,10 @@ export default function PipelineScene3D({ analysisData, demoMode = false }) {
     [sceneNodes],
   );
   const brokenFiles = useMemo(
-    () => sceneNodes.flatMap((node) => node.tiers.flatMap((tier) => tier.files.filter((file) => file.isErr))),
+    () =>
+      sceneNodes.flatMap((node) =>
+        node.tiers.flatMap((tier) => tier.files.filter((file) => file.isErr)),
+      ),
     [sceneNodes],
   );
 
@@ -504,7 +548,9 @@ export default function PipelineScene3D({ analysisData, demoMode = false }) {
   const inspectFirstError = useCallback(() => {
     const file = brokenFiles[0];
     if (!file) return;
-    const owner = sceneNodes.find((node) => node.tiers.some((tier) => tier.files.some((item) => item.id === file.id)));
+    const owner = sceneNodes.find((node) =>
+      node.tiers.some((tier) => tier.files.some((item) => item.id === file.id)),
+    );
     if (!owner) return;
     setActiveId(owner.id);
     setMicroFile({ ...file, nodeId: owner.id });
@@ -721,11 +767,9 @@ export default function PipelineScene3D({ analysisData, demoMode = false }) {
           0.32 +
           seeded((fromId + toId).length * 17 + fromId.charCodeAt(0)) * 0.3;
         const lane = (edgeIndex % 5) - 2;
-        const laneOffset = new THREE.Vector3(-
-          (pb.z - pa.z),
-          0,
-          pa.x - pb.x,
-        ).normalize().multiplyScalar(lane * 0.12);
+        const laneOffset = new THREE.Vector3(-(pb.z - pa.z), 0, pa.x - pb.x)
+          .normalize()
+          .multiplyScalar(lane * 0.12);
         const curve = new THREE.CatmullRomCurve3([
           pa.clone(),
           pa
@@ -762,12 +806,12 @@ export default function PipelineScene3D({ analysisData, demoMode = false }) {
       const spokeMeshes = [];
       topTier.files.forEach((f) => {
         const pos = filePos.get(f.id);
-          const plateAnchor = pos.clone().multiplyScalar(0.5);
-          plateAnchor.y = TIER_Y[2] + 0.55;
-          const curve = new THREE.CatmullRomCurve3([
+        const plateAnchor = pos.clone().multiplyScalar(0.5);
+        plateAnchor.y = TIER_Y[2] + 0.55;
+        const curve = new THREE.CatmullRomCurve3([
           pos.clone(),
           pos.clone().add(new THREE.Vector3(0, 0.6, 0)),
-            plateAnchor,
+          plateAnchor,
         ]);
         const geo = new THREE.TubeGeometry(curve, 12, 0.014, 6, false);
         const mat = new THREE.MeshBasicMaterial({
@@ -812,12 +856,18 @@ export default function PipelineScene3D({ analysisData, demoMode = false }) {
     /* ── connecting tubes between nodes ─────────────────────── */
     const linkMeshes = [];
     const graphEdges = sceneNodes[0]?.crossEdges || [];
-    const links = graphEdges.length > 0
-      ? graphEdges.map((edge) => ({ source: edge.source, target: edge.target }))
-      : demoMode ? sceneNodes.slice(0, -1).map((from, i) => ({
-          from,
-          to: sceneNodes[i + 1],
-        })) : [];
+    const links =
+      graphEdges.length > 0
+        ? graphEdges.map((edge) => ({
+            source: edge.source,
+            target: edge.target,
+          }))
+        : demoMode
+          ? sceneNodes.slice(0, -1).map((from, i) => ({
+              from,
+              to: sceneNodes[i + 1],
+            }))
+          : [];
 
     for (const [linkIndex, link] of links.entries()) {
       const fromInfo = fileMeshMap.get(link.source);
@@ -834,7 +884,9 @@ export default function PipelineScene3D({ analysisData, demoMode = false }) {
       const mid = p0.clone().lerp(p3, 0.5);
       const delta = p3.clone().sub(p0);
       const lane = (linkIndex % 5) - 2;
-      const laneOffset = new THREE.Vector3(-delta.y, delta.x, 0).normalize().multiplyScalar(lane * 0.22);
+      const laneOffset = new THREE.Vector3(-delta.y, delta.x, 0)
+        .normalize()
+        .multiplyScalar(lane * 0.22);
       laneOffset.z += ((linkIndex % 3) - 1) * 0.18;
       const lift = 0.35 + Math.min(delta.length() * 0.06, 0.8);
       const curve = new THREE.CatmullRomCurve3([
@@ -865,7 +917,12 @@ export default function PipelineScene3D({ analysisData, demoMode = false }) {
         color: isErrLink ? ERROR : HEALTHY,
       });
       const mesh = new THREE.Mesh(geo, mat);
-      mesh.userData = { kind: "link", isErrLink, nodeA: link.source, nodeB: link.target };
+      mesh.userData = {
+        kind: "link",
+        isErrLink,
+        nodeA: link.source,
+        nodeB: link.target,
+      };
       scene.add(mesh);
 
       const pulseGeo = new THREE.SphereGeometry(0.065, 8, 8);
@@ -890,7 +947,11 @@ export default function PipelineScene3D({ analysisData, demoMode = false }) {
         el.className = "pl3d-chip";
         el.textContent = fileNameOf(sceneNodes, m.userData.fileId);
         overlay.appendChild(el);
-        chipLabels.push({ el, mesh: m, owner: nodeRig.find((r) => r.chipMeshes.includes(m)) });
+        chipLabels.push({
+          el,
+          mesh: m,
+          owner: nodeRig.find((r) => r.chipMeshes.includes(m)),
+        });
       });
     });
 
@@ -980,7 +1041,8 @@ export default function PipelineScene3D({ analysisData, demoMode = false }) {
     const DEFAULT_VIEW = {
       theta: 0.55,
       phi: 1.05,
-      radius: sceneNodes.length > 1 ? Math.max(16, sceneNodes.length * 5.5) : 10,
+      radius:
+        sceneNodes.length > 1 ? Math.max(16, sceneNodes.length * 5.5) : 10,
       lookAt: new THREE.Vector3(0, -0.2, 0),
     };
     const MIN_RADIUS = 0.8,
@@ -1492,14 +1554,24 @@ export default function PipelineScene3D({ analysisData, demoMode = false }) {
           </div>
           {brokenFiles.length > 0 && !resolved && (
             <div style={errorSummaryStyle}>
-              <span>{brokenFiles.length} broken file{brokenFiles.length === 1 ? "" : "s"}</span>
+              <span>
+                {brokenFiles.length} broken file
+                {brokenFiles.length === 1 ? "" : "s"}
+              </span>
               <button onClick={inspectFirstError} style={inspectErrorStyle}>
                 Inspect error
               </button>
             </div>
           )}
         </div>
-        <div style={{ display: "flex", alignItems: "flex-start", gap: 12, pointerEvents: "auto" }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "flex-start",
+            gap: 12,
+            pointerEvents: "auto",
+          }}
+        >
           <div style={layoutControlStyle} aria-label="Pipeline layout">
             {[
               ["line", "Line"],
@@ -1514,7 +1586,11 @@ export default function PipelineScene3D({ analysisData, demoMode = false }) {
                   setActiveId(null);
                   setMicroFile(null);
                 }}
-                style={layoutMode === mode ? layoutButtonActiveStyle : layoutButtonStyle}
+                style={
+                  layoutMode === mode
+                    ? layoutButtonActiveStyle
+                    : layoutButtonStyle
+                }
                 title={`Arrange pipeline as ${label.toLowerCase()}`}
               >
                 {label}
@@ -1605,27 +1681,46 @@ export default function PipelineScene3D({ analysisData, demoMode = false }) {
             </button>
           </div>
 
-          {(microFile.incoming?.length > 0 || microFile.outgoing?.length > 0) && (
+          {(microFile.incoming?.length > 0 ||
+            microFile.outgoing?.length > 0) && (
             <div style={relationshipStyle}>
               <div>
                 <span style={relationshipLabelStyle}>IN</span>
-                {microFile.incoming?.length
-                  ? microFile.incoming.map((file) => (
-                      <span key={file.id} style={file.broken ? relationshipBrokenStyle : relationshipFileStyle}>
-                        {shortFileName(file.id)}
-                      </span>
-                    ))
-                  : <span style={relationshipEmptyStyle}>none</span>}
+                {microFile.incoming?.length ? (
+                  microFile.incoming.map((file) => (
+                    <span
+                      key={file.id}
+                      style={
+                        file.broken
+                          ? relationshipBrokenStyle
+                          : relationshipFileStyle
+                      }
+                    >
+                      {shortFileName(file.id)}
+                    </span>
+                  ))
+                ) : (
+                  <span style={relationshipEmptyStyle}>none</span>
+                )}
               </div>
               <div>
                 <span style={relationshipLabelStyle}>OUT</span>
-                {microFile.outgoing?.length
-                  ? microFile.outgoing.map((file) => (
-                      <span key={file.id} style={file.broken ? relationshipBrokenStyle : relationshipFileStyle}>
-                        {shortFileName(file.id)}
-                      </span>
-                    ))
-                  : <span style={relationshipEmptyStyle}>none</span>}
+                {microFile.outgoing?.length ? (
+                  microFile.outgoing.map((file) => (
+                    <span
+                      key={file.id}
+                      style={
+                        file.broken
+                          ? relationshipBrokenStyle
+                          : relationshipFileStyle
+                      }
+                    >
+                      {shortFileName(file.id)}
+                    </span>
+                  ))
+                ) : (
+                  <span style={relationshipEmptyStyle}>none</span>
+                )}
               </div>
             </div>
           )}
@@ -1703,8 +1798,12 @@ function fileMetaLookup(nodes, fileId) {
   return null;
 }
 function shortFileName(fileId) {
-  const parts = String(fileId || "").split(/[\\/]/).filter(Boolean);
-  return parts.length > 1 ? `${parts[0]}/${parts[parts.length - 1]}` : parts[0] || "unknown";
+  const parts = String(fileId || "")
+    .split(/[\\/]/)
+    .filter(Boolean);
+  return parts.length > 1
+    ? `${parts[0]}/${parts[parts.length - 1]}`
+    : parts[0] || "unknown";
 }
 
 /* ── styles ── */

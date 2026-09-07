@@ -3,23 +3,29 @@ import dns from 'node:dns';
 dns.setDefaultResultOrder('ipv4first');
 import Fastify from 'fastify';
 import { analyzeRoutes } from './routes/analyze.js';
+import { fastifyErrorHandler, createFastifyLogger } from './lib/errorHandler.js';
+import { fastifyRateLimit } from './lib/rateLimit.js';
+import openapi from '../openapi.json' with { type: 'json' };
 
 const PORT = parseInt(process.env.PORT ?? '3001');
 const HOST = process.env.HOST ?? '0.0.0.0';
 
 const server = Fastify({
-  logger: {
-    level: 'info',
-    serializers: {
-      req(req) {
-        return { method: req.method, url: req.url };
-      },
-    },
-  },
+  logger: createFastifyLogger(),
+});
+
+// Register error handler
+server.setErrorHandler(fastifyErrorHandler);
+
+// Register rate limiting (100 requests per 15 minutes)
+await fastifyRateLimit(server, {
+  max: 100,
+  timeWindow: 15 * 60 * 1000,
 });
 
 // Manual CORS — handles both JSON routes and streaming SSE responses
 server.addHook('onRequest', async (req, reply) => {
+  reply.header('Cache-Control', req.method === 'GET' ? 'no-store' : 'no-cache');
   const configuredOrigins = (process.env.FRONTEND_URLS ?? process.env.FRONTEND_URL ?? 'http://localhost:5173,https://latent-twin.vercel.app')
     .split(',')
     .map((origin) => origin.trim())
@@ -43,9 +49,18 @@ server.addHook('onRequest', async (req, reply) => {
 // Register routes
 await server.register(analyzeRoutes);
 
+// Keep the public API naming consistent for clients using the /api prefix.
+server.register(async (api) => {
+  api.register(analyzeRoutes, { prefix: '/api' });
+});
+
 // Health check (mirrors existing LatentTwin /api/health pattern)
 server.get('/health', async (_req, reply) => {
   return reply.send({ status: 'ok', service: 'repo-analysis' });
+});
+
+server.get('/openapi.json', async (_req, reply) => {
+  return reply.send(openapi);
 });
 
 // 404 fallback

@@ -2,6 +2,7 @@ const { test, describe, afterEach } = require('node:test');
 const assert = require('node:assert');
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 const { createIsolatedWorkspace, cleanupIsolatedWorkspace, applyPatch, runValidation } = require('../runner');
 
 describe('Runner Module', () => {
@@ -145,5 +146,23 @@ describe('Runner Module', () => {
         assert.throws(() => {
             applyPatch(workspacePath, invalidPath, patchInfo);
         }, /escapes workspace/);
+    });
+
+    test('cleanup rejects unsafe workspace paths and reports success', () => {
+        assert.strictEqual(cleanupIsolatedWorkspace(path.join(os.tmpdir(), 'not-a-latent-workspace')), false);
+        workspacePath = createIsolatedWorkspace(demoRepoPath);
+        assert.strictEqual(cleanupIsolatedWorkspace(workspacePath), true);
+        assert.strictEqual(fs.existsSync(workspacePath), false);
+        workspacePath = null;
+    });
+
+    test('validation reports missing package.json instead of throwing', () => {
+        workspacePath = createIsolatedWorkspace(demoRepoPath);
+        const targetDirectory = path.join(workspacePath, 'unpackaged', 'nested');
+        fs.mkdirSync(targetDirectory, { recursive: true });
+        fs.writeFileSync(path.join(targetDirectory, 'index.js'), 'module.exports = true;');
+        const result = runValidation(workspacePath, 'unpackaged/nested/index.js');
+        assert.strictEqual(result.success, false);
+        assert.match(result.error, /package\.json/);
     });
 });
