@@ -12,5 +12,18 @@ export default defineConfig({
         changeOrigin: true,
       }
     }
+  },
+  build: {
+    chunkSizeWarningLimit: 600,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          reactFlow: ['@xyflow/react'],
+          three: ['three'],
+          icons: ['lucide-react'],
+          graphLayout: ['dagre'],
+        },
+      },
+    },
   }
 })

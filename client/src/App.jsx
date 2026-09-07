@@ -4,6 +4,8 @@ import React, {
   useMemo,
   useCallback,
   useRef,
+  Suspense,
+  startTransition,
 } from "react";
 import { useNavigate } from "react-router-dom";
 import {
@@ -40,12 +42,13 @@ import {
   FlaskConical,
 } from "lucide-react";
 import CrossSectionNode from "./components/CrossSectionNode";
-import PipelineScene3D from "./components/PipelineScene3D";
 import ParticleWave from "./components/ParticleWave";
 import { layoutGraph } from "./lib/layoutGraph";
 import { toReactFlowGraph } from "./lib/toReactFlowGraph";
 import { DEMO_NODES, DEMO_EDGES } from "./lib/demoData.js";
 import { exportJSON, exportMarkdown } from "./lib/exportReport.js";
+
+const PipelineScene3D = React.lazy(() => import("./components/PipelineScene3D.jsx"));
 
 const getApiUrl = (endpoint) => {
   const baseUrl = import.meta.env.VITE_API_URL || "";
@@ -226,6 +229,7 @@ const nodeTypes = {
 function FlowContent() {
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
+  const stableNodeTypes = useMemo(() => nodeTypes, []);
   const [selectedNode, setSelectedNode] = useState(null);
   const [graphData, setGraphData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -343,6 +347,7 @@ function FlowContent() {
     setIsDemo(true);
     setGraphSearch("");
   }, [setEdges, setNodes, syncReactFlow]);
+  const loadDemoGraphRef = useRef(loadDemoGraph);
 
   /* Sync global axis mode into all crossSection node data */
   useEffect(() => {
@@ -387,9 +392,15 @@ function FlowContent() {
   }, [csAxisMode, fitView, loading, nodes.length, showFullGraph]);
 
   useEffect(() => {
+    let cancelled = false;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000);
+
+    // Render the local graph immediately while the live graph loads in the background.
+    loadDemoGraphRef.current();
+    setLoading(false);
+
     const fetchGraph = async () => {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 8000);
       try {
         const response = await fetch(getApiUrl("/api/graph"), {
           signal: controller.signal,
@@ -469,7 +480,7 @@ function FlowContent() {
           };
         });
 
-        if (demoLockedRef.current) return;
+        if (cancelled || demoLockedRef.current) return;
         rawAnalysisRef.current = {
           nodes: [],
           edges: [],
@@ -483,17 +494,23 @@ function FlowContent() {
         setBackendStatus("connected");
         setLoading(false);
       } catch (error) {
-        console.error("Error fetching graph:", error);
+        if (cancelled || error?.name === "AbortError") return;
+        if (error?.name !== "TypeError") {
+          console.warn("Graph API unavailable:", error);
+        }
         setBackendStatus("error");
-        setLoading(false);
-        loadDemoGraph();
       } finally {
         clearTimeout(timeout);
       }
     };
 
     fetchGraph();
-  }, [loadDemoGraph]);
+    return () => {
+      cancelled = true;
+      controller.abort();
+      clearTimeout(timeout);
+    };
+  }, []);
 
   const handleAnalyzeRepo = async () => {
     if (!repoUrl) return;
@@ -1277,7 +1294,7 @@ function FlowContent() {
               <Monitor size={14} /> Graph
             </button>
             <button
-              onClick={() => setViewMode("3d")}
+              onClick={() => startTransition(() => setViewMode("3d"))}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold tracking-wide transition-all ${
                 viewMode === "3d"
                   ? "bg-indigo-600/90 text-white shadow-sm"
@@ -1318,7 +1335,9 @@ function FlowContent() {
       {/* Main Content */}
       <div className="flex flex-1 overflow-hidden relative">
         {viewMode === "3d" ? (
-          <PipelineScene3D analysisData={pipelineData} demoMode={isDemo} />
+          <Suspense fallback={<ParticleWave />}>
+            <PipelineScene3D analysisData={pipelineData} demoMode={isDemo} />
+          </Suspense>
         ) : (
           <>
             {/* Graph Canvas */}
@@ -1511,7 +1530,7 @@ function FlowContent() {
                   onEdgesChange={onEdgesChange}
                   onNodeClick={onNodeClick}
                   onPaneClick={onPaneClick}
-                  nodeTypes={nodeTypes}
+                  nodeTypes={stableNodeTypes}
                   fitView
                   minZoom={0.03}
                   maxZoom={2}

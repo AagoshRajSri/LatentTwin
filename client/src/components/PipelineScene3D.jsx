@@ -183,6 +183,11 @@ const NODES = [
 
 const TIER_Y = [-0.05, 0.68, 1.4];
 const TIER_RADIUS = [0.62, 0.86, 0.6];
+
+function serviceNameOf(filePath) {
+  const parts = String(filePath || "").split(/[\\/]/).filter(Boolean);
+  return parts.length > 1 ? parts[0] : "repository";
+}
 /* ────────────────────────────────────────────────────────────────────────
    CANVAS LABEL TEXTURE for the top identity plate
    ──────────────────────────────────────────────────────────────────────── */
@@ -286,20 +291,17 @@ export default function PipelineScene3D({ analysisData, demoMode = false }) {
     }
     if (!analysisData?.nodes?.length) return [];
 
-    // Group nodes by tier dynamically
-    const tierGroups = new Map();
+    // Keep the architectural boundary visible: a block represents one service,
+    // while its internal layers represent the tiers/files found in that service.
+    const serviceGroups = new Map();
     analysisData.nodes.forEach((node) => {
-      const tier = node.tier || "other";
-      if (!tierGroups.has(tier)) tierGroups.set(tier, []);
-      tierGroups.get(tier).push(node);
+      const serviceKey = serviceNameOf(node.file || node.id);
+      if (!serviceGroups.has(serviceKey)) serviceGroups.set(serviceKey, []);
+      serviceGroups.get(serviceKey).push(node);
     });
 
-    const tierOrder = ["api", "logic", "data", "other"];
-    const sortedTiers = [...tierGroups.entries()].sort(([a], [b]) => {
-      const ai = tierOrder.indexOf(a) === -1 ? 99 : tierOrder.indexOf(a);
-      const bi = tierOrder.indexOf(b) === -1 ? 99 : tierOrder.indexOf(b);
-      return ai - bi;
-    });
+    const tierOrder = ["entrypoint", "api", "core", "logic", "consumer", "infrastructure", "data", "utility", "other"];
+    const sortedServices = [...serviceGroups.entries()].sort(([a], [b]) => a.localeCompare(b));
 
     const tierMeta = {
       api: {
@@ -328,32 +330,58 @@ export default function PipelineScene3D({ analysisData, demoMode = false }) {
       },
     };
 
-    // Arrange tiers as a shallow arc instead of a rigid row. The extra Y/Z
-    // separation gives dependency wires room to breathe in the scene.
-    const count = sortedTiers.length;
-    const blockPositions = count === 1
-      ? [[0, 0, 0]]
-      : count === 2
-        ? [[-4.4, 0.35, 0.7], [4.4, -0.15, -0.7]]
-        : count === 3
-          ? [[-5.4, 0.15, 0.9], [0, 1.25, 0], [5.4, 0.15, -0.9]]
-          : sortedTiers.map((_, i) => {
-              const angle = Math.PI * (0.15 + (i / (count - 1)) * 0.7);
-              return [Math.cos(angle) * 6, Math.sin(angle) * 1.5, (i - (count - 1) / 2) * -0.7];
-            });
+    // Use generous spacing so each service has a readable footprint and the
+    // cross-service wires remain visually separable.
+    const count = sortedServices.length;
+    const blockPositions = sortedServices.map((_, i) => {
+      const progress = count === 1 ? 0 : i / (count - 1);
+      return [(progress - 0.5) * Math.max(12, (count - 1) * 7.5), 0.25 + Math.sin(progress * Math.PI) * 0.7, (i % 2 ? -1 : 1) * 0.8];
+    });
+    const allEdges = analysisData.edges || [];
 
-    const blocks = sortedTiers.map(([tierKey, tierNodes], i) => {
-      const meta = tierMeta[tierKey] ?? tierMeta["other"];
-      const hasError = tierNodes.some((n) => n.status === "impacted");
+    const blocks = sortedServices.map(([serviceKey, serviceNodes], i) => {
+      const tierGroups = new Map();
+      serviceNodes.forEach((node) => {
+        const tier = node.tier || "other";
+        if (!tierGroups.has(tier)) tierGroups.set(tier, []);
+        tierGroups.get(tier).push(node);
+      });
+      const sortedTiers = [...tierGroups.entries()].sort(([a], [b]) => {
+        const ai = tierOrder.indexOf(a) === -1 ? 99 : tierOrder.indexOf(a);
+        const bi = tierOrder.indexOf(b) === -1 ? 99 : tierOrder.indexOf(b);
+        return ai - bi;
+      });
+      const primaryTier = sortedTiers[0]?.[0] || "other";
+      const meta = tierMeta[primaryTier] ?? tierMeta.other;
+      const hasError = serviceNodes.some(
+        (n) => n.status === "impacted" || (n.lines || []).some((line) => line.error),
+      );
+      const blockIds = new Set(serviceNodes.map((node) => node.id));
 
-      const files = tierNodes.map((node) => {
+      const files = serviceNodes.map((node) => {
         const lines = node.lines || [];
         const errLineIdx = lines.findIndex((l) => l.error);
+        const fileStatus = errLineIdx !== -1 ? "impacted" : node.status || "healthy";
+        const incoming = allEdges.filter((edge) => edge.target === node.id);
+        const outgoing = allEdges.filter((edge) => edge.source === node.id);
         return {
           id: node.id,
           name: (node.file || node.id).split("/").pop(),
+          path: node.file || node.id,
           isErr: node.status === "impacted" || errLineIdx !== -1,
-          status: node.status || "healthy",
+          status: fileStatus,
+          incoming: incoming.map((edge) => ({
+            id: edge.source,
+            broken: ["impacted", "affected-downstream"].includes(
+              analysisData.nodes.find((n) => n.id === edge.source)?.status,
+            ),
+          })),
+          outgoing: outgoing.map((edge) => ({
+            id: edge.target,
+            broken: ["impacted", "affected-downstream"].includes(
+              analysisData.nodes.find((n) => n.id === edge.target)?.status,
+            ),
+          })),
           code: lines.map((l) => l.code || l.before || ""),
           lineIdx: errLineIdx,
           broken:
@@ -367,7 +395,7 @@ export default function PipelineScene3D({ analysisData, demoMode = false }) {
         };
       });
 
-      // Distribute into 3 visual tiers inside each block
+      // Distribute files across the block's three visual layers.
       const t1 = [],
         t2 = [],
         t3 = [];
@@ -377,15 +405,13 @@ export default function PipelineScene3D({ analysisData, demoMode = false }) {
         else t3.push(f);
       });
 
-      // Internal edges: only edges where both source and target are in this block
-      const blockIds = new Set(files.map((f) => f.id));
-      const internalEdges = (analysisData.edges || [])
+      const internalEdges = allEdges
         .filter((e) => blockIds.has(e.source) && blockIds.has(e.target))
         .map((e) => [e.source, e.target]);
 
       return {
-        id: tierKey,
-        label: meta.label,
+        id: serviceKey,
+        label: `${serviceKey} / ${meta.label}`,
         glyph: meta.glyph,
         tint: meta.tint,
         accent: meta.accent,
@@ -400,7 +426,7 @@ export default function PipelineScene3D({ analysisData, demoMode = false }) {
           { name: "Layer 3", files: t3 },
         ],
         edges: internalEdges,
-        crossEdges: i === 0 ? (analysisData.edges || []) : [],
+        crossEdges: i === 0 ? allEdges : [],
       };
     });
 
@@ -576,7 +602,7 @@ export default function PipelineScene3D({ analysisData, demoMode = false }) {
           filePos.set(f.id, pos);
           fileMeta.set(f.id, { ...f, tierName: tier.name });
 
-          const isErr = f.status === "impacted";
+          const isErr = f.isErr || f.status === "impacted";
           const isDownstream = f.status === "affected-downstream";
           const isContext = f.status === "context";
 
@@ -771,7 +797,15 @@ export default function PipelineScene3D({ analysisData, demoMode = false }) {
         p3,
       ]);
       const geo = new THREE.TubeGeometry(curve, 32, 0.032, 6, false);
-      const isErrLink = from.status === "impacted" || to.status === "impacted" || from.hasError || to.hasError;
+      const sourceFile = fileMetaLookup(sceneNodes, link.source);
+      const targetFile = fileMetaLookup(sceneNodes, link.target);
+      const isErrLink =
+        sourceFile?.status === "impacted" ||
+        targetFile?.status === "impacted" ||
+        sourceFile?.status === "affected-downstream" ||
+        targetFile?.status === "affected-downstream" ||
+        from.hasError ||
+        to.hasError;
       const mat = new THREE.MeshBasicMaterial({
         color: isErrLink ? ERROR : HEALTHY,
       });
@@ -804,6 +838,54 @@ export default function PipelineScene3D({ analysisData, demoMode = false }) {
         chipLabels.push({ el, mesh: m, owner: nodeRig.find((r) => r.chipMeshes.includes(m)) });
       });
     });
+
+    const hoverPanel = document.createElement("div");
+    hoverPanel.className = "pl3d-hover-panel";
+    hoverPanel.style.opacity = "0";
+    overlay.appendChild(hoverPanel);
+    const hoverState = { mesh: null, owner: null };
+    const clearHover = () => {
+      hoverState.mesh = null;
+      hoverState.owner = null;
+      hoverPanel.style.opacity = "0";
+    };
+    const showHover = (mesh) => {
+      const meta = fileMetaLookup(sceneNodes, mesh.userData.fileId);
+      if (!meta) return clearHover();
+      hoverState.mesh = mesh;
+      hoverState.owner = nodeRig.find((r) => r.id === mesh.userData.nodeId);
+      hoverPanel.replaceChildren();
+
+      const heading = document.createElement("div");
+      heading.className = "pl3d-hover-panel__heading";
+      heading.textContent = meta.path || meta.name;
+      hoverPanel.appendChild(heading);
+
+      const status = document.createElement("div");
+      status.className = `pl3d-hover-panel__status ${meta.isErr ? "is-broken" : ""}`;
+      status.textContent = meta.isErr ? "BROKEN FILE" : "healthy file";
+      hoverPanel.appendChild(status);
+
+      if (meta.code?.length) {
+        const code = document.createElement("div");
+        code.className = "pl3d-hover-panel__code";
+        meta.code.forEach((line, index) => {
+          const lineEl = document.createElement("div");
+          lineEl.className = index === meta.lineIdx ? "is-error-line" : "";
+          lineEl.textContent = line || " ";
+          code.appendChild(lineEl);
+        });
+        hoverPanel.appendChild(code);
+      }
+
+      if (meta.brokenNote) {
+        const note = document.createElement("div");
+        note.className = "pl3d-hover-panel__note";
+        note.textContent = meta.brokenNote;
+        hoverPanel.appendChild(note);
+      }
+      hoverPanel.style.opacity = "1";
+    };
 
     const xMarks = [];
     nodeRig.forEach((r) => {
@@ -843,11 +925,11 @@ export default function PipelineScene3D({ analysisData, demoMode = false }) {
     const DEFAULT_VIEW = {
       theta: 0.55,
       phi: 1.05,
-      radius: 12,
+      radius: sceneNodes.length > 1 ? Math.max(16, sceneNodes.length * 5.5) : 10,
       lookAt: new THREE.Vector3(0, -0.2, 0),
     };
-    const MIN_RADIUS = 1.1,
-      MAX_RADIUS = 32;
+    const MIN_RADIUS = 0.8,
+      MAX_RADIUS = 80;
     const orbit = {
       theta: DEFAULT_VIEW.theta,
       phi: DEFAULT_VIEW.phi,
@@ -861,13 +943,13 @@ export default function PipelineScene3D({ analysisData, demoMode = false }) {
       panning: false,
       lastX: 0,
       lastY: 0,
-      idleTimer: 0,
     };
     const PHI_MIN = 0.06,
       PHI_MAX = Math.PI - 0.06;
     const framedKeyRef = { current: null };
 
     const dom = renderer.domElement;
+    dom.style.touchAction = "none";
     let dragDistance = 0;
     const panRight = new THREE.Vector3(),
       panUp = new THREE.Vector3();
@@ -875,16 +957,28 @@ export default function PipelineScene3D({ analysisData, demoMode = false }) {
     const ndc = new THREE.Vector2();
     const onContextMenu = (e) => e.preventDefault();
     const onDown = (e) => {
+      clearHover();
       orbit.dragging = true;
       orbit.panning = e.button === 2 || e.shiftKey;
       orbit.lastX = e.clientX;
       orbit.lastY = e.clientY;
-      orbit.idleTimer = 0;
       dragDistance = 0;
       dom.setPointerCapture(e.pointerId);
     };
     const onMove = (e) => {
-      if (!orbit.dragging) return;
+      if (!orbit.dragging) {
+        const rect = dom.getBoundingClientRect();
+        ndc.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+        ndc.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+        raycaster.setFromCamera(ndc, camera);
+        const hovered = raycaster.intersectObjects(
+          nodeRig.flatMap((r) => r.chipMeshes.filter((mesh) => mesh.visible)),
+          false,
+        )[0];
+        if (hovered) showHover(hovered.object);
+        else clearHover();
+        return;
+      }
       const dx = e.clientX - orbit.lastX,
         dy = e.clientY - orbit.lastY;
       orbit.lastX = e.clientX;
@@ -894,7 +988,7 @@ export default function PipelineScene3D({ analysisData, demoMode = false }) {
         // direct 1:1 panning — moves the focus point anywhere, "open world" style
         panRight.setFromMatrixColumn(camera.matrixWorld, 0);
         panUp.setFromMatrixColumn(camera.matrixWorld, 1);
-        const panScale = orbit.radius * 0.0016;
+        const panScale = orbit.radius * 0.0024;
         const delta = panRight
           .multiplyScalar(-dx * panScale)
           .add(panUp.multiplyScalar(dy * panScale));
@@ -995,7 +1089,7 @@ export default function PipelineScene3D({ analysisData, demoMode = false }) {
         );
         if (chipHits.length) {
           const hit = chipHits[0].object;
-          if (hit.userData.isErr && !resolvedRef.current) {
+          if (hit.userData.fileId) {
             const meta = fileMetaLookup(sceneNodes, hit.userData.fileId);
             setMicroFile({ ...meta, nodeId: hit.userData.nodeId });
           }
@@ -1036,6 +1130,7 @@ export default function PipelineScene3D({ analysisData, demoMode = false }) {
     dom.addEventListener("pointermove", onPinchMove);
     dom.addEventListener("pointerup", onPinchUp);
     dom.addEventListener("pointercancel", onPinchUp);
+    dom.addEventListener("pointerleave", clearHover);
 
     // imperative camera controls surfaced to the React toolbar (zoom buttons, reset)
     orbitApiRef.current = {
@@ -1083,13 +1178,7 @@ export default function PipelineScene3D({ analysisData, demoMode = false }) {
     function animate() {
       raf = requestAnimationFrame(animate);
       timer.update();
-      const dt = Math.min(timer.getDelta(), 0.05);
       const t = timer.getElapsed();
-
-      if (!orbit.dragging) {
-        orbit.idleTimer += dt;
-        if (orbit.idleTimer > 1.4) orbit.targetTheta += dt * 0.025;
-      }
 
       // one-shot framing when selection changes (never fights manual orbit/zoom)
       const micro = microRef.current;
@@ -1226,6 +1315,15 @@ export default function PipelineScene3D({ analysisData, demoMode = false }) {
         );
       });
 
+      if (hoverState.mesh && hoverState.owner && hoverState.mesh.visible) {
+        hoverState.mesh.getWorldPosition(worldVec);
+        const { x, y, behind } = project(worldVec);
+        hoverPanel.style.opacity = behind ? "0" : "1";
+        hoverPanel.style.transform = `translate(${x + 18}px, ${y - 12}px)`;
+      } else {
+        hoverPanel.style.opacity = "0";
+      }
+
       xMarks.forEach((xm) => {
         const e = xm.scoped ? xm.scoped.explodeAmount : 1;
         const visible = !resolvedRef.current && e > 0.4;
@@ -1266,6 +1364,7 @@ export default function PipelineScene3D({ analysisData, demoMode = false }) {
       dom.removeEventListener("pointermove", onPinchMove);
       dom.removeEventListener("pointerup", onPinchUp);
       dom.removeEventListener("pointercancel", onPinchUp);
+      dom.removeEventListener("pointerleave", clearHover);
       orbitApiRef.current = null;
       overlay.innerHTML = "";
       nodeRig.forEach((r) => r.plateTex.dispose());
@@ -1411,7 +1510,7 @@ export default function PipelineScene3D({ analysisData, demoMode = false }) {
                   fontFamily: "ui-monospace, monospace",
                 }}
               >
-                {microFile.tierName} · {microFile.nodeId}
+                {microFile.tierName} · {microFile.path || microFile.nodeId}
               </div>
             </div>
             <button
@@ -1421,6 +1520,31 @@ export default function PipelineScene3D({ analysisData, demoMode = false }) {
               ✕
             </button>
           </div>
+
+          {(microFile.incoming?.length > 0 || microFile.outgoing?.length > 0) && (
+            <div style={relationshipStyle}>
+              <div>
+                <span style={relationshipLabelStyle}>IN</span>
+                {microFile.incoming?.length
+                  ? microFile.incoming.map((file) => (
+                      <span key={file.id} style={file.broken ? relationshipBrokenStyle : relationshipFileStyle}>
+                        {shortFileName(file.id)}
+                      </span>
+                    ))
+                  : <span style={relationshipEmptyStyle}>none</span>}
+              </div>
+              <div>
+                <span style={relationshipLabelStyle}>OUT</span>
+                {microFile.outgoing?.length
+                  ? microFile.outgoing.map((file) => (
+                      <span key={file.id} style={file.broken ? relationshipBrokenStyle : relationshipFileStyle}>
+                        {shortFileName(file.id)}
+                      </span>
+                    ))
+                  : <span style={relationshipEmptyStyle}>none</span>}
+              </div>
+            </div>
+          )}
 
           <div style={codeBlockStyle}>
             {microFile.code.map((line, i) => {
@@ -1493,6 +1617,10 @@ function fileMetaLookup(nodes, fileId) {
       for (const f of tier.files)
         if (f.id === fileId) return { ...f, tierName: tier.name };
   return null;
+}
+function shortFileName(fileId) {
+  const parts = String(fileId || "").split(/[\\/]/).filter(Boolean);
+  return parts.length > 1 ? `${parts[0]}/${parts[parts.length - 1]}` : parts[0] || "unknown";
 }
 
 /* ── styles ── */
@@ -1590,6 +1718,35 @@ const codeBlockStyle = {
   padding: "8px 0",
   overflow: "hidden",
 };
+const relationshipStyle = {
+  display: "grid",
+  gap: 5,
+  marginBottom: 10,
+  padding: "7px 8px",
+  background: "rgba(19,28,47,0.75)",
+  border: "1px solid #1f2a42",
+  borderRadius: 7,
+  fontFamily: "ui-monospace, monospace",
+  fontSize: 10,
+  lineHeight: 1.35,
+};
+const relationshipLabelStyle = {
+  display: "inline-block",
+  width: 30,
+  color: "#64748b",
+  fontWeight: 700,
+  fontSize: 9,
+};
+const relationshipFileStyle = {
+  display: "inline-block",
+  marginRight: 6,
+  color: "#cbd5e1",
+};
+const relationshipBrokenStyle = {
+  ...relationshipFileStyle,
+  color: "#ff8788",
+};
+const relationshipEmptyStyle = { color: "#64748b" };
 const codeLineStyle = {
   fontFamily:
     "ui-monospace, SFMono-Regular, 'JetBrains Mono', Menlo, Consolas, monospace",
@@ -1620,6 +1777,28 @@ const CSS = `
   }
   .pl3d-chip--err   { color: #ffb3b4; border-color: #7a2e30; }
   .pl3d-chip--fixed { color: #9dfcc6; border-color: #1f6b45; }
+  .pl3d-hover-panel {
+    position: absolute; top: 0; left: 0; z-index: 8; width: min(360px, calc(100% - 24px));
+    padding: 10px; border: 1px solid #3b4968; border-radius: 8px;
+    background: rgba(8,10,17,0.96); box-shadow: 0 16px 40px rgba(0,0,0,0.55);
+    pointer-events: none; transition: opacity 0.12s ease; will-change: transform, opacity;
+  }
+  .pl3d-hover-panel__heading {
+    color: #e2e8f0; font: 700 11px ui-monospace, SFMono-Regular, monospace;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .pl3d-hover-panel__status {
+    margin-top: 3px; color: #6ee7b7; font: 700 9px ui-monospace, monospace; text-transform: uppercase;
+  }
+  .pl3d-hover-panel__status.is-broken { color: #ff8788; }
+  .pl3d-hover-panel__code {
+    margin-top: 7px; padding: 6px 0; color: #aab0c8; background: #0a0b11;
+    border: 1px solid #1f2233; border-radius: 5px; overflow: hidden;
+    font: 10px/1.45 ui-monospace, SFMono-Regular, monospace; white-space: pre-wrap;
+  }
+  .pl3d-hover-panel__code div { padding: 1px 7px; }
+  .pl3d-hover-panel__code .is-error-line { color: #ffb3b4; background: rgba(255,77,79,0.18); }
+  .pl3d-hover-panel__note { margin-top: 6px; color: #ff8788; font: 10px/1.35 ui-monospace, monospace; }
   .pl3d-xmark {
     position: absolute; top: 0; left: 0;
     color: #ff4d4f; font-weight: 800; font-size: 26px;
