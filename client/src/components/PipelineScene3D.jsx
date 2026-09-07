@@ -481,6 +481,10 @@ export default function PipelineScene3D({ analysisData, demoMode = false }) {
       ),
     [sceneNodes],
   );
+  const brokenFiles = useMemo(
+    () => sceneNodes.flatMap((node) => node.tiers.flatMap((tier) => tier.files.filter((file) => file.isErr))),
+    [sceneNodes],
+  );
 
   const repair = useCallback(() => setResolved(true), []);
   useEffect(() => {
@@ -497,6 +501,15 @@ export default function PipelineScene3D({ analysisData, demoMode = false }) {
     setMicroFile(null);
   }, []);
   const closeMicro = useCallback(() => setMicroFile(null), []);
+  const inspectFirstError = useCallback(() => {
+    const file = brokenFiles[0];
+    if (!file) return;
+    const owner = sceneNodes.find((node) => node.tiers.some((tier) => tier.files.some((item) => item.id === file.id)));
+    if (!owner) return;
+    setActiveId(owner.id);
+    setMicroFile({ ...file, nodeId: owner.id });
+    setHintVisible(false);
+  }, [brokenFiles, sceneNodes]);
   const resetView = useCallback(() => {
     setActiveId(null);
     setMicroFile(null);
@@ -1477,6 +1490,14 @@ export default function PipelineScene3D({ analysisData, demoMode = false }) {
             drag to orbit · shift/right-drag to pan · scroll or double-click to
             zoom
           </div>
+          {brokenFiles.length > 0 && !resolved && (
+            <div style={errorSummaryStyle}>
+              <span>{brokenFiles.length} broken file{brokenFiles.length === 1 ? "" : "s"}</span>
+              <button onClick={inspectFirstError} style={inspectErrorStyle}>
+                Inspect error
+              </button>
+            </div>
+          )}
         </div>
         <div style={{ display: "flex", alignItems: "flex-start", gap: 12, pointerEvents: "auto" }}>
           <div style={layoutControlStyle} aria-label="Pipeline layout">
@@ -1698,6 +1719,24 @@ const overlayTop = {
   gap: 10,
   pointerEvents: "none",
   fontFamily: "'Inter', -apple-system, sans-serif",
+};
+const errorSummaryStyle = {
+  display: "flex",
+  alignItems: "center",
+  gap: 8,
+  marginTop: 8,
+  color: "#ff8788",
+  font: "700 10px ui-monospace, monospace",
+  textTransform: "uppercase",
+};
+const inspectErrorStyle = {
+  border: "1px solid #7a2e30",
+  borderRadius: 5,
+  padding: "4px 7px",
+  color: "#ffd1d1",
+  background: "rgba(122,46,48,0.28)",
+  font: "700 9px ui-monospace, monospace",
+  cursor: "pointer",
 };
 const layoutControlStyle = {
   display: "flex",
