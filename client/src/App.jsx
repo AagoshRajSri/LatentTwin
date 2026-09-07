@@ -1503,7 +1503,7 @@ function FlowContent() {
               {analyzing && <ParticleWave />}
 
               {loading ? (
-                <ParticleWave />
+                <div className="absolute inset-0 bg-transparent" aria-hidden="true" />
               ) : nodes.length === 0 ? (
                 <div className="absolute inset-0 z-10 flex items-center justify-center px-6">
                   <div className="max-w-md rounded-xl border border-gray-800 bg-gray-950/90 px-6 py-5 text-center shadow-2xl backdrop-blur-md">
