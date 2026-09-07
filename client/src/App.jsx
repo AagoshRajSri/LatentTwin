@@ -348,6 +348,7 @@ function FlowContent() {
     setGraphSearch("");
   }, [setEdges, setNodes, syncReactFlow]);
   const loadDemoGraphRef = useRef(loadDemoGraph);
+  loadDemoGraphRef.current = loadDemoGraph;
 
   /* Sync global axis mode into all crossSection node data */
   useEffect(() => {
@@ -393,12 +394,12 @@ function FlowContent() {
 
   useEffect(() => {
     let cancelled = false;
+    let timedOut = false;
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 8000);
-
-    // Render the local graph immediately while the live graph loads in the background.
-    loadDemoGraphRef.current();
-    setLoading(false);
+    const timeout = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, 8000);
 
     const fetchGraph = async () => {
       try {
@@ -494,11 +495,14 @@ function FlowContent() {
         setBackendStatus("connected");
         setLoading(false);
       } catch (error) {
-        if (cancelled || error?.name === "AbortError") return;
+        if (cancelled) return;
+        if (error?.name === "AbortError" && !timedOut) return;
         if (error?.name !== "TypeError") {
           console.warn("Graph API unavailable:", error);
         }
         setBackendStatus("error");
+        loadDemoGraphRef.current();
+        setLoading(false);
       } finally {
         clearTimeout(timeout);
       }
