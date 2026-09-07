@@ -181,8 +181,8 @@ const NODES = [
   },
 ];
 
-const TIER_Y = [-0.2, 0.82, 1.82];
-const TIER_RADIUS = [0.95, 1.28, 0.95];
+const TIER_Y = [0.5, 1.65, 2.8];
+const TIER_RADIUS = [1.15, 1.55, 1.15];
 
 function serviceNameOf(filePath) {
   const parts = String(filePath || "").split(/[\\/]/).filter(Boolean);
@@ -639,7 +639,7 @@ export default function PipelineScene3D({ analysisData, demoMode = false }) {
         const count = tier.files.length;
         tier.files.forEach((f, fi) => {
           const angle = (fi / count) * Math.PI * 2 + ti * 0.6 + n.x * 0.02;
-          const r = TIER_RADIUS[ti];
+          const r = TIER_RADIUS[ti] + Math.max(0, count - 1) * 0.12;
           const px = Math.cos(angle) * r;
           const pz = Math.sin(angle) * r;
           const py =
@@ -661,7 +661,7 @@ export default function PipelineScene3D({ analysisData, demoMode = false }) {
                 : 0x54608a;
           const hasEmissive = isErr || isDownstream;
 
-          const size = isErr ? 0.24 : isDownstream ? 0.22 : 0.19;
+          const size = isErr ? 0.28 : isDownstream ? 0.26 : 0.23;
           const mat = new THREE.MeshStandardMaterial({
             color: chipColor,
             emissive: hasEmissive
