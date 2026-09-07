@@ -9,7 +9,10 @@ const CLONE_TIMEOUT_MS = parseInt(process.env.CLONE_TIMEOUT_MS ?? '60000'); // B
 const MAX_REPO_SIZE_MB = parseInt(process.env.MAX_REPO_SIZE_MB ?? '10000'); // Default to 10GB to allow large repos
 const MAX_REPO_SIZE_KB = MAX_REPO_SIZE_MB * 1024;
 
-const ALLOWED_EXTENSIONS = new Set(['.js', '.ts', '.jsx', '.tsx', '.mjs', '.cjs', '.py']);
+const ALLOWED_EXTENSIONS = new Set([
+  '.js', '.ts', '.jsx', '.tsx', '.mjs', '.cjs', '.py',
+  '.go', '.java', '.rb', '.cs', '.cpp', '.c', '.rs',
+]);
 const IGNORED_DIRS = new Set(['node_modules', '.git', 'dist', 'build', '.next', '__pycache__', '.venv', 'venv']);
 
 export interface FetchedFile {

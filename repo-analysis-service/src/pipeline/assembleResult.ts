@@ -15,6 +15,12 @@ export function assembleResult(
 ): GraphResult {
   const impacted = diagnosis?.impactedFiles ?? new Set<string>();
   const linesByFile = diagnosis?.linesByFile ?? new Map<string, DiagnosedLine[]>();
+  const downstream = new Set<string>();
+  const context = new Set<string>();
+  for (const edge of graph.edges) {
+    if (impacted.has(edge.target)) downstream.add(edge.source);
+    if (impacted.has(edge.source)) context.add(edge.target);
+  }
 
   // Build node list — one node per source file
   const nodes: GraphNode[] = [];
@@ -23,6 +29,13 @@ export function assembleResult(
     const diagnosedLines = linesByFile.get(file.path) ?? [];
     const hasError = diagnosedLines.some((l) => l.error);
     const isImpacted = impacted.has(file.path);
+    const status = isImpacted
+      ? 'impacted'
+      : downstream.has(file.path)
+      ? 'affected-downstream'
+      : context.has(file.path)
+      ? 'context'
+      : 'healthy';
 
     // Only emit nodes that are reachable via edges OR are directly impacted
     // (This keeps the graph manageable for large repos)
@@ -59,7 +72,7 @@ export function assembleResult(
       label: path.basename(file.path),
       file: file.path,
       tier,
-      status: hasError ? 'impacted' : isImpacted ? 'impacted' : 'healthy',
+      status: hasError ? 'impacted' : status,
       lines,
     });
   }

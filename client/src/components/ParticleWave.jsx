@@ -1,12 +1,22 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 /**
  * ParticleWave — full-screen, label-free Google Stitch-style particle wave.
  * Mount it anywhere; it covers the entire viewport with a fixed overlay.
  */
-export default function ParticleWave() {
+export default function ParticleWave({
+  messages = ['Reading source files', 'Following incoming dependencies', 'Checking error paths', 'Building the repair plan'],
+}) {
   const canvasRef = useRef(null);
   const rafRef   = useRef(null);
+  const [messageIndex, setMessageIndex] = useState(0);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setMessageIndex((current) => (current + 1) % messages.length);
+    }, 1800);
+    return () => clearInterval(timer);
+  }, [messages.length]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -135,6 +145,24 @@ export default function ParticleWave() {
             'radial-gradient(ellipse 75% 65% at 50% 50%, transparent 25%, #020509 100%)',
         }}
       />
+      <div
+        style={{
+          position: 'absolute',
+          left: 20,
+          right: 20,
+          bottom: 28,
+          textAlign: 'center',
+          color: '#8993ad',
+          fontFamily: 'ui-monospace, SFMono-Regular, monospace',
+          fontSize: 11,
+          letterSpacing: '0.12em',
+          textTransform: 'uppercase',
+          textShadow: '0 0 14px rgba(56,189,248,0.35)',
+        }}
+      >
+        <span style={{ color: '#38bdf8', marginRight: 8 }}>●</span>
+        {messages[messageIndex]}
+      </div>
     </div>
   );
 }

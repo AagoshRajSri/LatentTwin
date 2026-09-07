@@ -62,7 +62,9 @@ const VIEW_MODES = ['z', 'y', 'x'];
 const MODE_LABELS = { z: 'Z Depth', y: 'Y Stack', x: 'X Flow' };
 
 const getApiUrl = (endpoint) => {
-  const baseUrl = import.meta.env.VITE_API_URL || '';
+  const baseUrl =
+    import.meta.env.VITE_ANALYSIS_API_URL ||
+    (import.meta.env.PROD ? '' : 'http://localhost:3001');
   if (!baseUrl) return endpoint;
   const cleanBase = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
   const cleanEndpoint = endpoint.startsWith('/') ? endpoint.slice(1) : endpoint;
@@ -123,8 +125,15 @@ export default function CrossSectionNode({ data, id }) {
 
   const [layers, setLayers] = useState(initialLayers);
   const [repairingLine, setRepairingLine] = useState(null);
+  const [repairProposal, setRepairProposal] = useState(null);
   const [tilt, setTilt] = useState({ x: 18, y: -25 });
   const cubeRef = useRef(null);
+
+  React.useEffect(() => {
+    setLayers(initialLayers);
+    setRepairingLine(null);
+    setRepairProposal(null);
+  }, [initialLayers]);
 
   const hasImpacted = layers.some((l) => (l.lines ?? []).some((ln) => ln.status === 'error'));
   const allResolved = layers.every((l) => (l.lines ?? []).every((ln) => ln.status !== 'error'));
@@ -142,35 +151,29 @@ export default function CrossSectionNode({ data, id }) {
       setRepairingLine(key);
 
       try {
-        const response = await fetch(getApiUrl('/api/repair'), {
+        const line = layers[layerIdx].lines[lineIdx];
+        const response = await fetch(getApiUrl('/ai-fix'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            target: data?.id || id,
-            change: layers[layerIdx].lines[lineIdx].hint || 'schema mismatch',
-            nodeId: id,
-            layerIdx,
-            lineIdx,
+            file: layers[layerIdx].file,
+            bugs: [{
+              before: line.before || line.code,
+              after: line.after,
+              hint: line.hint,
+              lineNumber: line.lineNumber || lineIdx + 1,
+            }],
           }),
         });
         if (!response.ok) throw new Error(`Repair request failed (${response.status})`);
+        const result = await response.json();
+        if (!result.fix) throw new Error('The analysis service returned no repair proposal');
+        setRepairProposal(result.fix);
       } catch (_) {
         setRepairingLine(null);
         return;
       }
-
-      setTimeout(() => {
-        setLayers((prev) =>
-          prev.map((layer, li) => {
-            if (li !== layerIdx) return layer;
-            const newLines = layer.lines.map((line, lni) =>
-              lni === lineIdx ? { ...line, status: 'resolved', error: false } : line
-            );
-            return { ...layer, lines: newLines };
-          })
-        );
-        setRepairingLine(null);
-      }, 850);
+      setRepairingLine(null);
     },
     [repairingLine, layers, id, data]
   );
@@ -274,6 +277,7 @@ export default function CrossSectionNode({ data, id }) {
                   layer={layer}
                   layerIdx={li}
                   repairingLine={repairingLine}
+                  repairProposal={repairProposal}
                   onRepairLine={handleRepairLine}
                   searchTerm={searchTerm}
                 />
@@ -293,7 +297,7 @@ export default function CrossSectionNode({ data, id }) {
   );
 }
 
-function LayerCard({ layer, layerIdx, repairingLine, onRepairLine, searchTerm }) {
+function LayerCard({ layer, layerIdx, repairingLine, repairProposal, onRepairLine, searchTerm }) {
   const safeLines = layer.lines ?? [];
   const broken = safeLines.some((l) => l.status === 'error');
   const resolvedRecently = safeLines.some((l) => l.status === 'resolved') && !broken;
@@ -355,6 +359,12 @@ function LayerCard({ layer, layerIdx, repairingLine, onRepairLine, searchTerm })
                 <div className="csn-hint">
                   <HighlightText text={line.hint} search={searchTerm} />
                 </div>
+                {repairProposal && repairingLine === null && (
+                  <div className="csn-repair-proposal">
+                    <strong>AI fix proposal</strong>
+                    <pre>{repairProposal}</pre>
+                  </div>
+                )}
               </div>
             );
           }

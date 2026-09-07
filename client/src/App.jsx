@@ -103,6 +103,26 @@ function HighlightText({ text, search }) {
   );
 }
 
+function LoadingStatus({ messages = ["Reading the architecture map", "Tracing service boundaries", "Preparing the dependency view"] }) {
+  const [index, setIndex] = useState(0);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setIndex((current) => (current + 1) % messages.length);
+    }, 1800);
+    return () => clearInterval(timer);
+  }, [messages.length]);
+
+  return (
+    <div className="absolute bottom-6 left-0 right-0 z-10 flex justify-center pointer-events-none">
+      <div className="rounded-full border border-gray-800/80 bg-gray-950/80 px-4 py-2 text-[10px] font-mono uppercase tracking-[0.16em] text-gray-500 shadow-lg backdrop-blur-sm">
+        <span className="mr-2 inline-block h-1.5 w-1.5 rounded-full bg-sky-400 animate-pulse" />
+        {messages[index]}
+      </div>
+    </div>
+  );
+}
+
 const CustomServiceNode = ({ data, selected }) => {
   const isImpacted = data.isImpacted;
   const isTarget = data.isTarget;
@@ -274,6 +294,7 @@ function FlowContent() {
   /* ── Demo mode ── */
   const [isDemo, setIsDemo] = useState(false);
   const demoLockedRef = useRef(false);
+  const analysisActiveRef = useRef(false);
 
   /* ── Mascot Welcome Video (First visit of the day or cache cleared) ── */
   const [showMascot, setShowMascot] = useState(false);
@@ -322,6 +343,57 @@ function FlowContent() {
     setNodes(rfNodes);
     setEdges(rfEdges);
   }, [csAxisMode, showFullGraph, setNodes, setEdges]);
+
+  const applyAnalysisResult = useCallback((result) => {
+    const resultNodes = Array.isArray(result?.nodes) ? result.nodes : [];
+    const resultEdges = Array.isArray(result?.edges) ? result.edges : [];
+    if (resultNodes.length === 0) {
+      throw new Error("The analysis returned no connected files to display.");
+    }
+
+    const impacted = new Set(
+      resultNodes
+        .filter((node) =>
+          node.status === "impacted" ||
+          (node.lines || []).some((line) => line.error),
+        )
+        .map((node) => node.id),
+    );
+    const normalizedNodes = resultNodes.map((node) => ({
+      ...node,
+      id: node.id || node.file,
+      file: node.file || node.id,
+      label: node.label || node.file || node.id,
+      tier: node.tier || "other",
+      status: impacted.has(node.id) ? "impacted" : node.status || "healthy",
+      lines: node.lines || [],
+    }));
+    const normalizedEdges = resultEdges.filter(
+      (edge) => edge?.source && edge?.target,
+    );
+    const raw = {
+      nodes: normalizedNodes,
+      edges: normalizedEdges,
+      positions: layoutGraph(normalizedNodes, normalizedEdges),
+      impacted,
+    };
+    rawAnalysisRef.current = raw;
+    setAnalysisSnapshot({ nodes: normalizedNodes, edges: normalizedEdges, impacted });
+    setGraphData(null);
+    setIsDemo(false);
+    setLoading(false);
+    const { rfNodes, rfEdges } = toReactFlowGraph(
+      normalizedNodes,
+      normalizedEdges,
+      raw.positions,
+      csAxisMode,
+      impacted,
+      showFullGraph,
+    );
+    setNodes(rfNodes);
+    setEdges(rfEdges);
+    return rfNodes.length;
+  }, [csAxisMode, setEdges, setNodes, showFullGraph]);
 
   const loadDemoGraph = useCallback((lock = false) => {
     if (lock) demoLockedRef.current = true;
@@ -481,7 +553,7 @@ function FlowContent() {
           };
         });
 
-        if (cancelled || demoLockedRef.current) return;
+        if (cancelled || demoLockedRef.current || analysisActiveRef.current) return;
         rawAnalysisRef.current = {
           nodes: [],
           edges: [],
@@ -518,6 +590,7 @@ function FlowContent() {
 
   const handleAnalyzeRepo = async () => {
     if (!repoUrl) return;
+    analysisActiveRef.current = true;
     demoLockedRef.current = false;
     rawAnalysisRef.current = {
       nodes: [],
@@ -588,20 +661,7 @@ function FlowContent() {
             throw new Error(data.message || data.error || "The analysis job did not return a valid graph.");
           }
 
-          const raw = rawAnalysisRef.current;
-          raw.nodes = data.nodes;
-          raw.edges = data.edges;
-          raw.impacted = new Set(
-            data.nodes.filter((n) => n.status === "impacted").map((n) => n.id),
-          );
-          raw.positions = layoutGraph(raw.nodes, raw.edges);
-
-          setAnalysisSnapshot({
-            nodes: raw.nodes,
-            edges: raw.edges,
-            impacted: raw.impacted,
-          });
-          syncReactFlow();
+          applyAnalysisResult(data);
           setTimeout(() => fitView({ duration: 800, padding: 0.2 }), 200);
         } catch (error) {
           console.error("Analysis result error:", error);
@@ -657,13 +717,7 @@ function FlowContent() {
             if (!Array.isArray(resultData.nodes) || !Array.isArray(resultData.edges)) {
               throw new Error("Analysis returned an invalid graph");
             }
-            const raw = rawAnalysisRef.current;
-            raw.nodes = resultData.nodes;
-            raw.edges = resultData.edges;
-            raw.impacted = new Set(resultData.nodes.filter((n) => n.status === "impacted").map((n) => n.id));
-            raw.positions = layoutGraph(raw.nodes, raw.edges);
-            setAnalysisSnapshot({ nodes: raw.nodes, edges: raw.edges, impacted: raw.impacted });
-            syncReactFlow();
+            applyAnalysisResult(resultData);
             setTimeout(() => fitView({ duration: 800, padding: 0.2 }), 200);
             return;
           } catch (error) {
@@ -676,6 +730,7 @@ function FlowContent() {
     } catch (e) {
       console.error(e);
       setAnalyzing(false);
+      analysisActiveRef.current = false;
       const apiUrl = getAnalysisApiUrl("/analyze");
       const isConnFailure = e instanceof TypeError || e.name === "TypeError";
       alert(
@@ -1153,6 +1208,7 @@ function FlowContent() {
   );
 
   const handleGoHome = useCallback(() => {
+    analysisActiveRef.current = false;
     setIsDemo(false);
     setSimulationResult(null);
     setRepairData(null);
@@ -1507,7 +1563,10 @@ function FlowContent() {
               {analyzing && <ParticleWave />}
 
               {loading ? (
-                <div className="absolute inset-0 bg-transparent" aria-hidden="true" />
+                <>
+                  <div className="absolute inset-0 bg-transparent" aria-hidden="true" />
+                  <LoadingStatus />
+                </>
               ) : nodes.length === 0 ? (
                 <div className="absolute inset-0 z-10 flex items-center justify-center px-6">
                   <div className="max-w-md rounded-xl border border-gray-800 bg-gray-950/90 px-6 py-5 text-center shadow-2xl backdrop-blur-md">

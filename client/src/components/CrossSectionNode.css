@@ -299,6 +299,22 @@
 .strike   { color: #94647a; text-decoration: line-through; text-decoration-color: rgba(248,113,113,0.6); }
 .proposed { color: #86efac; }
 .csn-hint { font-size: 9px; color: #f87171; opacity: 0.85; padding-left: 19px; font-style: italic; }
+.csn-repair-proposal {
+  margin-top: 4px;
+  padding: 6px 7px;
+  border: 1px solid rgba(56,189,248,0.25);
+  border-radius: 5px;
+  background: rgba(14,116,144,0.08);
+  color: #7dd3fc;
+  font-size: 9px;
+}
+.csn-repair-proposal pre {
+  margin: 4px 0 0;
+  color: #cbd5e1;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: 9px/1.4 'SF Mono', 'JetBrains Mono', Menlo, monospace;
+}
 .csn-fix-btn {
   margin-left: auto; font-size: 9px; font-weight: 700; color: #0a0f1a; background: #38bdf8; border: none;
   padding: 3px 8px; border-radius: 5px; cursor: pointer; letter-spacing: 0.02em;

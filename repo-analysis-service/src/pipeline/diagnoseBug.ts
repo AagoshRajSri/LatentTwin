@@ -51,14 +51,7 @@ export async function diagnoseBug(
   );
 
   // Step 3: Walk graph 1-2 hops from diagnosed files to mark impacted neighbors
-  const diagnosed = new Set(linesByFile.keys());
-  const impactedFiles = new Set(diagnosed);
-  for (const f of diagnosed) {
-    for (const edge of graph.edges) {
-      if (edge.source === f) impactedFiles.add(edge.target);
-      if (edge.target === f) impactedFiles.add(edge.source);
-    }
-  }
+  const impactedFiles = new Set(linesByFile.keys());
 
   return { impactedFiles, linesByFile };
 }

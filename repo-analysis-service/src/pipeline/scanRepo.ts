@@ -31,7 +31,7 @@ export interface ScanCandidate {
 
 export interface NodeBlast {
   file: string;
-  status: "impacted" | "affected-downstream" | "context";
+  status: "healthy" | "impacted" | "affected-downstream" | "context";
   role: string;
   lines: DiagnosedLine[];
 }
@@ -402,7 +402,16 @@ export async function scanRepo(
         "[scanRepo] Gemini returned 0 candidates. The scanned repository appears to have no critical bugs.",
       );
     }
-    return { blastRadius: [], edges: [] };
+    const visibleFiles = files.filter((file) => graph.fileSet.has(file.path));
+    return {
+      blastRadius: visibleFiles.map((file) => ({
+        file: file.path,
+        status: "healthy",
+        role: "healthy repository file",
+        lines: [],
+      })),
+      edges: graph.edges,
+    };
   }
 
   // Rank: by confidence first, then by graph in-degree as tiebreaker
@@ -478,12 +487,26 @@ export async function scanRepo(
           candidate.reason,
           content,
         );
-        diagnosedMap.set(candidate.file, result);
+        if (result.lines.length > 0) {
+          diagnosedMap.set(candidate.file, result);
+        }
       }),
     ),
   );
 
   // ── Stage 3: blast radius ─────────────────────────────────
   const buggyFiles = [...diagnosedMap.keys()];
+  if (buggyFiles.length === 0) {
+    const visibleFiles = files.filter((file) => graph.fileSet.has(file.path));
+    return {
+      blastRadius: visibleFiles.map((file) => ({
+        file: file.path,
+        status: "healthy",
+        role: "unconfirmed candidate",
+        lines: [],
+      })),
+      edges: graph.edges,
+    };
+  }
   return computeBlastRadius(buggyFiles, graph, diagnosedMap);
 }
