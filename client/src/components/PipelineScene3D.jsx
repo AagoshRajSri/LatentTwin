@@ -181,12 +181,41 @@ const NODES = [
   },
 ];
 
-const TIER_Y = [-0.05, 0.68, 1.4];
-const TIER_RADIUS = [0.62, 0.86, 0.6];
+const TIER_Y = [-0.2, 0.82, 1.82];
+const TIER_RADIUS = [0.95, 1.28, 0.95];
 
 function serviceNameOf(filePath) {
   const parts = String(filePath || "").split(/[\\/]/).filter(Boolean);
   return parts.length > 1 ? parts[0] : "repository";
+}
+
+function getLayoutPositions(count, mode) {
+  if (count <= 1) return [[0, 0.25, 0]];
+
+  if (mode === "triangle" && count <= 3) {
+    return count === 2
+      ? [[-5, 0.25, 0], [5, 0.25, 0]]
+      : [[0, 1.7, 0], [-6.2, 0.05, 1.2], [6.2, 0.05, -1.2]];
+  }
+
+  if (mode === "square" && count <= 4) {
+    const square = [[-5.4, 0.3, -3.6], [5.4, 0.3, -3.6], [5.4, 0.3, 3.6], [-5.4, 0.3, 3.6]];
+    return square.slice(0, count);
+  }
+
+  if (mode === "orbit") {
+    const radius = Math.max(6, count * 2.2);
+    return Array.from({ length: count }, (_, i) => {
+      const angle = (i / count) * Math.PI * 2 - Math.PI / 2;
+      return [Math.cos(angle) * radius, 0.45 + Math.sin(angle * 2) * 0.45, Math.sin(angle) * radius];
+    });
+  }
+
+  const spacing = Math.max(7.5, Math.min(10, 42 / count));
+  return Array.from({ length: count }, (_, i) => {
+    const progress = i / (count - 1);
+    return [(progress - 0.5) * spacing * (count - 1), 0.25 + Math.sin(progress * Math.PI) * 0.7, (i % 2 ? -1 : 1) * 0.8];
+  });
 }
 /* ────────────────────────────────────────────────────────────────────────
    CANVAS LABEL TEXTURE for the top identity plate
@@ -274,6 +303,7 @@ export default function PipelineScene3D({ analysisData, demoMode = false }) {
   const [activeId, setActiveId] = useState(null);
   const [resolved, setResolved] = useState(false);
   const [hintVisible, setHintVisible] = useState(true);
+  const [layoutMode, setLayoutMode] = useState("line");
   const [microFile, setMicroFile] = useState(null); // {id,name,tierName,nodeId,code,lineIdx,broken,brokenNote,fixed,fixedNote}
 
   const activeRef = useRef(null);
@@ -287,7 +317,13 @@ export default function PipelineScene3D({ analysisData, demoMode = false }) {
   // The fixture pipeline is available only after the user explicitly chooses Demo.
   const sceneNodes = useMemo(() => {
     if ((!analysisData || !analysisData.nodes || analysisData.nodes.length === 0) && demoMode) {
-      return NODES;
+      const positions = getLayoutPositions(NODES.length, layoutMode);
+      return NODES.map((node, index) => ({
+        ...node,
+        x: positions[index][0],
+        y: positions[index][1],
+        z: positions[index][2],
+      }));
     }
     if (!analysisData?.nodes?.length) return [];
 
@@ -333,10 +369,7 @@ export default function PipelineScene3D({ analysisData, demoMode = false }) {
     // Use generous spacing so each service has a readable footprint and the
     // cross-service wires remain visually separable.
     const count = sortedServices.length;
-    const blockPositions = sortedServices.map((_, i) => {
-      const progress = count === 1 ? 0 : i / (count - 1);
-      return [(progress - 0.5) * Math.max(12, (count - 1) * 7.5), 0.25 + Math.sin(progress * Math.PI) * 0.7, (i % 2 ? -1 : 1) * 0.8];
-    });
+    const blockPositions = getLayoutPositions(count, layoutMode);
     const allEdges = analysisData.edges || [];
 
     const blocks = sortedServices.map(([serviceKey, serviceNodes], i) => {
@@ -431,7 +464,7 @@ export default function PipelineScene3D({ analysisData, demoMode = false }) {
     });
 
     return blocks;
-  }, [analysisData]);
+  }, [analysisData, demoMode, layoutMode]);
 
   // Derived lookups for the overlay
   const NODE_LABEL = useMemo(
@@ -652,7 +685,7 @@ export default function PipelineScene3D({ analysisData, demoMode = false }) {
       // ── wires following the real dependency graph
       const wireMeshes = [];
       let forwardErrorWire = null;
-      n.edges.forEach(([fromId, toId]) => {
+      n.edges.forEach(([fromId, toId], edgeIndex) => {
         const a = fileMeta.get(fromId),
           b = fileMeta.get(toId);
         const pa = filePos.get(fromId),
@@ -672,20 +705,27 @@ export default function PipelineScene3D({ analysisData, demoMode = false }) {
             : HEALTHY;
 
         const lift =
-          0.22 +
+          0.32 +
           seeded((fromId + toId).length * 17 + fromId.charCodeAt(0)) * 0.3;
+        const lane = (edgeIndex % 5) - 2;
+        const laneOffset = new THREE.Vector3(-
+          (pb.z - pa.z),
+          0,
+          pa.x - pb.x,
+        ).normalize().multiplyScalar(lane * 0.12);
         const curve = new THREE.CatmullRomCurve3([
           pa.clone(),
           pa
             .clone()
             .lerp(pb, 0.5)
+            .add(laneOffset)
             .add(new THREE.Vector3(0, lift, 0)),
           pb.clone(),
         ]);
         const geo = new THREE.TubeGeometry(
           curve,
           20,
-          isImpactedWire || isDownstreamWire ? 0.026 : 0.016,
+          isImpactedWire || isDownstreamWire ? 0.021 : 0.013,
           6,
           false,
         );
@@ -709,10 +749,12 @@ export default function PipelineScene3D({ analysisData, demoMode = false }) {
       const spokeMeshes = [];
       topTier.files.forEach((f) => {
         const pos = filePos.get(f.id);
-        const curve = new THREE.CatmullRomCurve3([
+          const plateAnchor = pos.clone().multiplyScalar(0.5);
+          plateAnchor.y = TIER_Y[2] + 0.55;
+          const curve = new THREE.CatmullRomCurve3([
           pos.clone(),
           pos.clone().add(new THREE.Vector3(0, 0.6, 0)),
-          new THREE.Vector3(0, TIER_Y[2] + 0.55, 0),
+            plateAnchor,
         ]);
         const geo = new THREE.TubeGeometry(curve, 12, 0.014, 6, false);
         const mat = new THREE.MeshBasicMaterial({
@@ -1436,7 +1478,28 @@ export default function PipelineScene3D({ analysisData, demoMode = false }) {
             zoom
           </div>
         </div>
-        <div style={{ display: "flex", gap: 8, pointerEvents: "auto" }}>
+        <div style={{ display: "flex", alignItems: "flex-start", gap: 12, pointerEvents: "auto" }}>
+          <div style={layoutControlStyle} aria-label="Pipeline layout">
+            {[
+              ["line", "Line"],
+              ["triangle", "Triangle"],
+              ["square", "Square"],
+              ["orbit", "Orbit"],
+            ].map(([mode, label]) => (
+              <button
+                key={mode}
+                onClick={() => {
+                  setLayoutMode(mode);
+                  setActiveId(null);
+                  setMicroFile(null);
+                }}
+                style={layoutMode === mode ? layoutButtonActiveStyle : layoutButtonStyle}
+                title={`Arrange pipeline as ${label.toLowerCase()}`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
           {activeId && (
             <button onClick={goBack} style={btnStyle}>
               ← Back
@@ -1635,6 +1698,29 @@ const overlayTop = {
   gap: 10,
   pointerEvents: "none",
   fontFamily: "'Inter', -apple-system, sans-serif",
+};
+const layoutControlStyle = {
+  display: "flex",
+  gap: 3,
+  padding: 3,
+  background: "rgba(8,10,17,0.86)",
+  border: "1px solid #2e3346",
+  borderRadius: 8,
+};
+const layoutButtonStyle = {
+  border: "1px solid transparent",
+  borderRadius: 5,
+  padding: "5px 7px",
+  color: "#8b93ad",
+  background: "transparent",
+  font: "700 9px ui-monospace, monospace",
+  cursor: "pointer",
+};
+const layoutButtonActiveStyle = {
+  ...layoutButtonStyle,
+  color: "#e2e8f0",
+  background: "#25314b",
+  borderColor: "#4b628b",
 };
 const overlayBottom = {
   position: "absolute",
