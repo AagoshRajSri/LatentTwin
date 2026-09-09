@@ -75,9 +75,11 @@ const rateLimitHandler = (req, res, next, options) => {
   });
 };
 
+const isTestMode = process.env.NODE_ENV === 'test' || process.env.npm_lifecycle_event === 'test';
+
 const standardLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 5000, // Increased for development (Vite HMR can easily exceed 100 requests)
+  max: isTestMode ? 100 : 5000, // Increased for development (Vite HMR can easily exceed 100 requests)
   standardHeaders: true,
   legacyHeaders: false,
   handler: rateLimitHandler,
@@ -89,7 +91,7 @@ const standardLimiter = rateLimit({
 
 const strictLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 500,
+  max: isTestMode ? 10 : 500,
   standardHeaders: true,
   legacyHeaders: false,
   handler: rateLimitHandler

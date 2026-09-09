@@ -4,7 +4,7 @@ import {
   GitCompare, AlignLeft, ChevronDown, ChevronUp, AlertTriangle,
   Lightbulb, Zap, FileCode, ArrowRight,
 } from 'lucide-react';
-import { computeDiff, diffStats, inlineCharDiff, downloadPatch } from '../lib/diffUtils.js';
+import { computeDiff, diffStats, downloadPatch } from '../lib/diffUtils.js';
 
 // ─────────────────────────────────────────────────────────────
 // Utilities
@@ -23,25 +23,7 @@ const getAnalysisApiUrl = (endpoint) => {
 // Inline Diff Span (token-level highlights within a changed line)
 // ─────────────────────────────────────────────────────────────
 
-function InlineDiff({ orig, fixed, side }) {
-  const tokens = useMemo(() => {
-    try { return inlineCharDiff(orig || '', fixed || ''); }
-    catch { return [{ type: 'same', text: side === 'left' ? orig : fixed }]; }
-  }, [orig, fixed, side]);
 
-  return (
-    <span>
-      {tokens.map((tok, i) => {
-        if (tok.type === 'same') return <span key={i}>{tok.text}</span>;
-        if (side === 'left' && tok.type === 'removed')
-          return <mark key={i} style={{ background: 'rgba(239,68,68,0.35)', borderRadius: 2, padding: '0 1px' }}>{tok.text}</mark>;
-        if (side === 'right' && tok.type === 'added')
-          return <mark key={i} style={{ background: 'rgba(34,197,94,0.35)', borderRadius: 2, padding: '0 1px' }}>{tok.text}</mark>;
-        return null;
-      })}
-    </span>
-  );
-}
 
 // ─────────────────────────────────────────────────────────────
 // Side-by-Side Split View
@@ -154,7 +136,6 @@ function HunkBlock({ hunk, side }) {
       {hunk.lines.map((line, li) => {
         const isRemoved = line.type === 'removed';
         const isAdded = line.type === 'added';
-        const isContext = line.type === 'context';
 
         // On the left side, show removed + context. Skip added.
         // On the right side, show added + context. Skip removed.

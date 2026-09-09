@@ -1321,7 +1321,7 @@ export default function PipelineScene3D({ analysisData, demoMode = false }) {
       const pipeMats   = [pipeMat, flangeMat, elbowMat];
 
       // Helper: Docking collar at terminal port
-      function addDockingManifold(pt) {
+      const addDockingManifold = (pt) => {
         const collar = new THREE.Mesh(
           new THREE.CylinderGeometry(0.14, 0.18, 0.20, 12),
           flangeMat,
@@ -1348,7 +1348,7 @@ export default function PipelineScene3D({ analysisData, demoMode = false }) {
       addDockingManifold(toPort);
 
       // Helper: Straight cylindrical pipe segment with modular flange joints
-      function addPipeSegment(a, b) {
+      const addPipeSegment = (a, b) => {
         const dir = b.clone().sub(a);
         const len = dir.length();
         if (len < 0.05) return;
@@ -1400,7 +1400,7 @@ export default function PipelineScene3D({ analysisData, demoMode = false }) {
       }
 
       // Helper: Spherical elbow fitting at 90° pipe bends
-      function addElbow(pt) {
+      const addElbow = (pt) => {
         const el = new THREE.Mesh(
           new THREE.SphereGeometry(ELBOW_R, 14, 12),
           elbowMat,

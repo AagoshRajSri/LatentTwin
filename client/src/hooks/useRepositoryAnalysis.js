@@ -59,7 +59,7 @@ export function useRepositoryAnalysis({ repoUrl, onStage, onResult, onError, onS
         try { message = JSON.parse(event.data).message || message; } catch { /* malformed payload */ }
         finish(() => onError?.(new Error(message)));
       });
-      source.addEventListener('error', (event) => {
+      source.addEventListener('error', () => {
         if (settled || reconnecting) return; // Ignore errors if we are already recovering result
         // Fallback for network drops when no job_error was explicitly sent
         finish(() => onError?.(new Error('Analysis service connection lost')));
