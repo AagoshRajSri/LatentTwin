@@ -316,7 +316,7 @@ function FlowContent() {
     const timeout = setTimeout(() => {
       timedOut = true;
       controller.abort();
-    }, 8000);
+    }, 30000);
 
     const fetchGraph = async () => {
       try {
