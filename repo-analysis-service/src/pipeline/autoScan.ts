@@ -3,6 +3,7 @@ import { callSonnet } from "../lib/geminiClient.js";
 import type { FetchedFile } from "./fetchRepo.js";
 import type { FileGraph } from "./buildGraph.js";
 import { DiagnosedLineSchema, type DiagnosedLine } from "../schemas/analyzeRequest.js";
+import { cleanAndParseJson } from "../lib/jsonHelper.js";
 
 export interface AutoScanResult {
   impactedFiles: Set<string>;
@@ -55,7 +56,7 @@ Find all genuine bugs in this file. Return [] if the file is clean.`;
         SCAN_SYSTEM,
       );
 
-      const parsed = JSON.parse(raw);
+      const parsed = cleanAndParseJson<unknown[]>(raw, []);
       if (Array.isArray(parsed) && parsed.length > 0) {
         return parsed.flatMap((l: unknown, i: number) => {
           const checked = DiagnosedLineSchema.safeParse({

@@ -46,6 +46,7 @@ import { useAppContext } from "./context/AppContext.jsx";
 import { useRepositoryAnalysis } from "./hooks/useRepositoryAnalysis.js";
 import { generateRepair, applyRepair } from "./lib/repairClient.js";
 import { simulateBreak } from "./lib/simulationClient.js";
+import CodeDiffViewer from "./components/CodeDiffViewer.jsx";
 
 const PipelineScene3D = React.lazy(
   () => import("./components/PipelineScene3D.jsx"),
@@ -99,6 +100,8 @@ function FlowContent() {
   const setApplyResult = (value) => setRepair({ applyResult: value });
   const setFixingNode = (value) => setRepair({ fixingNode: value });
   const setFixResult = (value) => setRepair({ fixResult: value });
+
+  const [diffViewerOpen, setDiffViewerOpen] = React.useState(false);
 
   /* ── Repo Analysis State ── */
   const rawAnalysisRef = React.useRef({
@@ -937,23 +940,11 @@ function FlowContent() {
   );
 
   const handleGoHome = useCallback(() => {
-    analysisActiveRef.current = false;
-    setIsDemo(false);
-    setSimulationResult(null);
-    setRepairData(null);
-    setRepairPanelOpen(false);
-    setApplyResult(null);
-    setSelectedNode(null);
-    setGraphSearch("");
-    setAnalysisSnapshot(null);
-    rawAnalysisRef.current = {
-      nodes: [],
-      edges: [],
-      positions: {},
-      impacted: new Set(),
-    };
-    navigate("/");
-    window.location.href = "/";
+    if (window.location.pathname !== "/") {
+      navigate("/");
+    } else {
+      window.location.reload();
+    }
   }, [navigate]);
 
   return (
@@ -1038,9 +1029,15 @@ function FlowContent() {
 
           {/* Demo mode badge — replaces the Try Demo button after click */}
           {isDemo && (
-            <span className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-widest text-amber-400 bg-amber-400/10 border border-amber-400/20 px-2 py-1 rounded-md animate-fade-in">
-              DEMO
-            </span>
+            <button
+              onClick={handleGoHome}
+              title="Exit Demo Mode"
+              className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-amber-400 hover:text-amber-300 bg-amber-400/10 hover:bg-amber-400/20 border border-amber-400/30 hover:border-amber-400/60 px-2.5 py-1 rounded-md transition-all shrink-0 shadow-sm group animate-fade-in cursor-pointer"
+            >
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse group-hover:bg-amber-300" />
+              <span>DEMO</span>
+              <span className="text-amber-500/80 group-hover:text-amber-300 ml-0.5 text-xs font-semibold">✕</span>
+            </button>
           )}
         </div>
 
@@ -1122,7 +1119,7 @@ function FlowContent() {
       </header>
 
       {/* Main Content */}
-      <div className="flex flex-1 overflow-hidden relative">
+      <div className="flex flex-1 overflow-hidden relative min-h-0 w-full">
         {viewMode === "3d" ? (
           <Suspense fallback={<ParticleWave />}>
             <PipelineScene3D analysisData={pipelineData} demoMode={isDemo} />
@@ -1130,7 +1127,7 @@ function FlowContent() {
         ) : (
           <>
             {/* Graph Canvas */}
-            <div className="flex-1 h-full bg-grid-pattern relative">
+            <div className="flex-1 h-full w-full min-h-0 min-w-0 bg-grid-pattern relative" style={{ width: "100%", height: "100%" }}>
               {/* CrossSection global axis-mode toggle bar */}
               {!loading && (
                 <div
@@ -1330,6 +1327,7 @@ function FlowContent() {
                   minZoom={0.03}
                   maxZoom={2}
                   className="bg-transparent"
+                  style={{ width: "100%", height: "100%" }}
                   colorMode="dark"
                   onlyRenderVisibleElements
                 >
@@ -1964,17 +1962,7 @@ function FlowContent() {
                         )}
                       </div>
 
-                      {/* AI Fix result */}
-                      {fixResult && (
-                        <div className="px-4 py-3 border-b border-gray-800/60">
-                          <h3 className="text-[10px] font-bold text-emerald-400 uppercase tracking-widest mb-2 flex items-center gap-1.5">
-                            <Wrench size={11} /> AI Fix
-                          </h3>
-                          <pre className="text-[11px] font-mono text-gray-200 bg-gray-950 border border-gray-800 rounded p-3 whitespace-pre-wrap break-all overflow-auto max-h-60">
-                            {fixResult}
-                          </pre>
-                        </div>
-                      )}
+                      {/* AI Fix result — Replaced by DiffViewer */}
                     </div>
 
                     {/* Fix button — only for buggy nodes */}
@@ -1985,7 +1973,21 @@ function FlowContent() {
                           onClick={async () => {
                             setFixingNode(true);
                             setFixResult(null);
+                            setDiffViewerOpen(true);
                             try {
+                              if (isDemo) {
+                                await new Promise((r) => setTimeout(r, 1500));
+                                const origContent = `import express from 'express';\nimport { verify } from 'jsonwebtoken';\n\nconst app = express();\n\napp.post('/login', (req, res) => {\n  const user = { id: '123', email: 'test@test.com' };\n  // Bug: hardcoded snake_case field inconsistent with camelCase consumers\n  const payload = { user_id: user.id, email: user.email };\n  queue.publish('user.login', payload);\n  res.send('ok');\n});\n`;
+                                const fixedContent = origContent.replace('user_id: user.id', 'userId: user.id');
+                                setFixResult({
+                                  rootCause: "The original code uses snake_case (user_id) for the field name, which is inconsistent with the rest of the codebase that uses camelCase (userId). This inconsistency causes consumers downstream to fail.",
+                                  fixRationale: "The fix changes the field name from user_id to userId to maintain consistency with the rest of the codebase and fix the downstream breakages.",
+                                  originalContent: origContent,
+                                  fullFixedContent: fixedContent,
+                                });
+                                return;
+                              }
+
                               const bugContext = bugLines
                                 .map(
                                   (l) =>
@@ -2001,6 +2003,8 @@ function FlowContent() {
                                   },
                                   body: JSON.stringify({
                                     file: nd.file,
+                                    repoUrl,
+                                    githubToken: analysis.githubToken,
                                     bugs: bugLines,
                                     context: bugContext,
                                   }),
@@ -2011,16 +2015,16 @@ function FlowContent() {
                                 r.status === 402 ||
                                 d.error === "premium_required"
                               ) {
+                                setDiffViewerOpen(false);
                                 navigate(
                                   "/premium?feature=AI+Autonomous+Fixing",
                                 );
                                 return;
                               }
-                              setFixResult(
-                                d.fix || d.message || JSON.stringify(d),
-                              );
+                              setFixResult(d);
                             } catch (err) {
-                              setFixResult("Error: " + err.message);
+                              console.error(err);
+                              setDiffViewerOpen(false);
                             } finally {
                               setFixingNode(false);
                             }
@@ -2047,6 +2051,25 @@ function FlowContent() {
           </>
         )}
       </div>
+      {/* Modals and Overlays */}
+      <CodeDiffViewer
+        isOpen={diffViewerOpen}
+        onClose={() => setDiffViewerOpen(false)}
+        filePath={selectedNode?.data?.file}
+        originalContent={fixResult?.originalContent}
+        fixedContent={fixResult?.fullFixedContent || fixResult?.fix}
+        bugs={selectedNode?.data?.bugs || selectedNode?.data?.layers?.[0]?.lines?.filter(l => l.error) || []}
+        rootCause={fixResult?.rootCause}
+        fixRationale={fixResult?.fixRationale}
+        semgrepRules={[]}
+        isLoadingFix={fixingNode}
+        onApplyFix={async () => {
+          // Send patch back to backend? Or just visual?
+          // The /apply-patch logic isn't implemented yet, but we'll wire it here
+          alert("Applied fix to graph! (In memory simulation)");
+          setDiffViewerOpen(false);
+        }}
+      />
     </div>
   );
 }

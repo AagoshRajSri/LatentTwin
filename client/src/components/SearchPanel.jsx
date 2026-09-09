@@ -8,7 +8,7 @@ import { Search, X } from 'lucide-react';
 import { useAppContext } from '../context/AppContext';
 
 export const SearchPanel = () => {
-  const { analysis, ui, setUI } = useAppContext();
+  const { analysis, ui, setUI, setAnalysis } = useAppContext();
 
   // Filter nodes based on search
   const searchResults = useMemo(() => {
@@ -63,6 +63,8 @@ export const SearchPanel = () => {
             <div
               key={node.id}
               className="bg-slate-700 p-2 rounded text-sm cursor-pointer hover:bg-slate-600 transition-colors"
+              onClick={() => setAnalysis({ selectedNode: node })}
+              title={`Select ${node.file}`}
             >
               <div className="font-mono text-blue-300">{node.file}</div>
               {node.label && (

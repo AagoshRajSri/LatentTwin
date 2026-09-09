@@ -129,6 +129,7 @@ export default function CrossSectionNode({ data, id }) {
   const [layers, setLayers] = useState(initialLayers);
   const [repairingLine, setRepairingLine] = useState(null);
   const [repairProposal, setRepairProposal] = useState(null);
+  const [repairError, setRepairError] = useState(null);
   const [tilt, setTilt] = useState({ x: 18, y: -25 });
   const cubeRef = useRef(null);
 
@@ -161,6 +162,7 @@ export default function CrossSectionNode({ data, id }) {
       const key = `${layerIdx}-${lineIdx}`;
       if (repairingLine === key) return;
       setRepairingLine(key);
+      setRepairError(null);
 
       try {
         const line = layers[layerIdx].lines[lineIdx];
@@ -179,13 +181,25 @@ export default function CrossSectionNode({ data, id }) {
             ],
           }),
         });
-        if (!response.ok)
-          throw new Error(`Repair request failed (${response.status})`);
+        if (!response.ok) {
+          let msg = `Repair request failed (HTTP ${response.status})`;
+          try {
+            const errBody = await response.json();
+            msg = errBody.message || msg;
+          } catch { /* ignore */ }
+          setRepairError(msg);
+          setRepairingLine(null);
+          return;
+        }
         const result = await response.json();
-        if (!result.fix)
-          throw new Error("The analysis service returned no repair proposal");
+        if (!result.fix) {
+          setRepairError("The analysis service returned no repair proposal");
+          setRepairingLine(null);
+          return;
+        }
         setRepairProposal(result.fix);
-      } catch (_) {
+      } catch (err) {
+        setRepairError(err instanceof Error ? err.message : "Repair failed unexpectedly");
         setRepairingLine(null);
         return;
       }
@@ -273,6 +287,31 @@ export default function CrossSectionNode({ data, id }) {
             </button>
           ))}
         </div>
+
+        {repairError && (
+          <div
+            style={{
+              background: "rgba(239,68,68,0.12)",
+              border: "1px solid rgba(239,68,68,0.4)",
+              borderRadius: "6px",
+              padding: "6px 10px",
+              margin: "4px 0 0",
+              fontSize: "11px",
+              color: "#fca5a5",
+              display: "flex",
+              alignItems: "center",
+              gap: "6px",
+            }}
+          >
+            <span>⚠</span>
+            <span>{repairError}</span>
+            <button
+              onClick={(e) => { e.stopPropagation(); setRepairError(null); }}
+              style={{ marginLeft: "auto", opacity: 0.6, cursor: "pointer", background: "none", border: "none", color: "inherit" }}
+              title="Dismiss"
+            >✕</button>
+          </div>
+        )}
 
         <div
           className={`csn-cube-wrapper ${isExpanded ? "expanded-wrapper" : "collapsed-wrapper"}`}

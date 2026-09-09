@@ -73,7 +73,7 @@ export async function fetchRepo(
     tree = await fetchTreeViaApi(meta.owner, meta.name, meta.commitSha, token);
   } catch (e: any) {
     if (e?.code === "TREE_TOO_LARGE") {
-      return cloneAndRead(meta, token);
+    return cloneAndRead(meta, token, branch);
     }
     if (e?.code === "API_AUTH_FAILURE") {
       throw new Error(e.message);
@@ -149,6 +149,7 @@ async function fetchContentsViaApi(
 async function cloneAndRead(
   meta: RepoMeta,
   token: string | undefined,
+  branch?: string,
 ): Promise<FetchResult> {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "lt-clone-"));
   try {
@@ -161,7 +162,7 @@ async function cloneAndRead(
       "--depth",
       "1",
       "--branch",
-      meta.defaultBranch,
+      branch ?? meta.defaultBranch,
       "--single-branch",
     ]);
 

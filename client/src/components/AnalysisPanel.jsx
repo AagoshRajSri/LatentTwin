@@ -6,7 +6,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { useAppContext } from '../context/AppContext';
 import { AlertCircle, Loader } from 'lucide-react';
-import { startFullScan, subscribeToAnalysis } from '../lib/analysisClient.js';
+import { startAnalysis as startAnalysisApi, subscribeToAnalysis } from '../lib/analysisClient.js';
 
 export const AnalysisPanel = () => {
   const { analysis, startAnalysis, setAnalysis, finishAnalysis, failAnalysis } = useAppContext();
@@ -21,7 +21,7 @@ export const AnalysisPanel = () => {
   const handleAnalyze = async () => {
     setLocalError('');
 
-    // Validate input
+    // Validate URL
     if (!repoUrl.trim()) {
       setLocalError('Please enter a repository URL');
       inputRef.current?.focus();
@@ -39,11 +39,25 @@ export const AnalysisPanel = () => {
       return;
     }
 
-    // Start analysis
+    // Validate bug input content for non-fullScan types
+    if (bugInput.type !== 'fullScan' && !bugInput.content.trim()) {
+      const label = bugInput.type === 'stackTrace' ? 'stack trace'
+        : bugInput.type === 'testFailure' ? 'test failure output'
+        : 'bug description';
+      setLocalError(`Please enter a ${label} before analyzing.`);
+      return;
+    }
+
+    // Build the payload for the analysis service
+    const payload = bugInput.type === 'fullScan'
+      ? { type: 'fullScan' }
+      : { type: bugInput.type, content: bugInput.content };
+
+    // Update global context state
     startAnalysis(repoUrl);
 
     try {
-      const jobId = await startFullScan(repoUrl);
+      const jobId = await startAnalysisApi(repoUrl, payload);
       subscriptionRef.current?.();
       subscriptionRef.current = subscribeToAnalysis(jobId, {
         onStage: ({ stage, pct }) => setAnalysis({ analyzeStage: stage || '', analyzePct: pct || 0 }),

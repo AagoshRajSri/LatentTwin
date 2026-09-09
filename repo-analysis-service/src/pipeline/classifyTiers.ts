@@ -1,6 +1,6 @@
-import path from 'node:path';
 import PQueue from 'p-queue';
 import { callHaiku } from '../lib/geminiClient.js';
+import { cleanAndParseJson } from '../lib/jsonHelper.js';
 
 export type Tier = 'api' | 'logic' | 'data' | 'other';
 
@@ -81,7 +81,7 @@ Return a JSON object mapping each file path to its tier. Example:
 {"routes/auth.ts": "api", "models/User.ts": "data"}`;
 
   const raw = await callHaiku(prompt);
-  const parsed: unknown = JSON.parse(raw);
+  const parsed: unknown = cleanAndParseJson(raw, {});
   const result = new Map<string, Tier>();
   if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return result;
   const requested = new Set(filePaths);

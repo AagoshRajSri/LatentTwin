@@ -1,5 +1,5 @@
 export const FLASH_MODEL = process.env.GEMINI_MODEL || "gemini-3.6-flash";
-export const PRO_MODEL = process.env.GEMINI_PRO_MODEL || "gemini-3.6-pro";
+export const PRO_MODEL = process.env.GEMINI_PRO_MODEL || "gemini-1.5-pro";
 
 export async function callHaiku(
   prompt: string,
@@ -34,31 +34,41 @@ export async function callGemini(
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 60000);
+  const timeout = setTimeout(() => controller.abort(), 120_000);
 
   let res: any;
   try {
-    res = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      signal: controller.signal,
-      body: JSON.stringify({
-        system_instruction: {
-          parts: [{ text: sys }],
-        },
-        contents: [
-          {
-            parts: [{ text: prompt }],
+    let attempt = 0;
+    while (attempt < 3) {
+      res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        signal: controller.signal,
+        body: JSON.stringify({
+          system_instruction: {
+            parts: [{ text: sys }],
           },
-        ],
-        generationConfig: {
-          responseMimeType: "application/json",
-        },
-      }),
-    });
+          contents: [
+            {
+              parts: [{ text: prompt }],
+            },
+          ],
+          generationConfig: {
+            responseMimeType: "application/json",
+          },
+        }),
+      });
 
-    if (!res.ok) {
-      throw new Error(`Gemini API Error (${res.status})`);
+      if (res.ok) break;
+      
+      const errBody = await res.text().catch(() => "");
+      if ((res.status === 503 || res.status === 429) && attempt < 2) {
+        attempt++;
+        await new Promise((resolve) => setTimeout(resolve, Math.pow(2, attempt) * 1000));
+        continue;
+      }
+      
+      throw new Error(`Gemini API Error (${res.status}): ${errBody.slice(0, 300)}`);
     }
 
     const data = (await res.json()) as {
@@ -75,8 +85,6 @@ export async function callGemini(
     }
 
     return text;
-  } catch (err) {
-    throw err;
   } finally {
     clearTimeout(timeout);
   }
@@ -102,7 +110,7 @@ export async function callLLM7(
   messages.push({ role: "user", content: prompt });
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 60000);
+  const timeout = setTimeout(() => controller.abort(), 120_000);
 
   try {
     const res = await fetch(url, {

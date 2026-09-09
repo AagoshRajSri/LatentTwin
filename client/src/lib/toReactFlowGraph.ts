@@ -49,6 +49,7 @@ export function toReactFlowGraph(
         after: l.after,
         hint: l.hint,
         error: l.error || false,
+        status: l.error ? 'error' : 'healthy',
         lineNumber: l.lineNumber,
       }));
 

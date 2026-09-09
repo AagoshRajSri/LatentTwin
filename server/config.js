@@ -5,8 +5,8 @@ class Config {
   constructor() {
     this.repoPath = process.env.REPO_PATH || path.resolve(__dirname, '../demo-system');
     
-    // Resolve relative paths from project root if passed in via env
-    if (this.repoPath.startsWith('./') || this.repoPath.startsWith('../')) {
+    // Resolve any non-absolute path from the project root
+    if (!path.isAbsolute(this.repoPath)) {
       this.repoPath = path.resolve(process.cwd(), this.repoPath);
     }
   }

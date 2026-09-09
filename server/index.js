@@ -77,7 +77,7 @@ const rateLimitHandler = (req, res, next, options) => {
 
 const standardLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 100,
+  max: 5000, // Increased for development (Vite HMR can easily exceed 100 requests)
   standardHeaders: true,
   legacyHeaders: false,
   handler: rateLimitHandler,
@@ -89,7 +89,7 @@ const standardLimiter = rateLimit({
 
 const strictLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 10,
+  max: 500,
   standardHeaders: true,
   legacyHeaders: false,
   handler: rateLimitHandler

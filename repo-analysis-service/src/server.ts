@@ -59,6 +59,10 @@ server.get('/health', async (_req, reply) => {
   return reply.send({ status: 'ok', service: 'repo-analysis' });
 });
 
+server.get('/api/health', async (_req, reply) => {
+  return reply.send({ status: 'ok', service: 'repo-analysis' });
+});
+
 server.get('/openapi.json', async (_req, reply) => {
   return reply.send(openapi);
 });

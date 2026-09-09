@@ -73,10 +73,15 @@ function applyPatch(workspacePath, targetFilePath, patchInfo) {
 
     // Simple replacement (replace user_id with userId for demo)
     // The diff in the generateRepair shows exact line replacement. We'll simulate that for reliability.
-    fileContent = fileContent.replace(new RegExp(oldProp, 'g'), newProp);
+    // Escape special regex chars in oldProp to avoid regex injection bugs
+    const escapedOldProp = oldProp.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    fileContent = fileContent.replace(new RegExp(escapedOldProp, 'g'), newProp);
 
-    // Verify schema_version is untouched (if relevant to our demo)
-    if (detectedChange.includes('user_id') && !fileContent.includes('schema_version')) {
+    // Only enforce schema_version invariant when it was present before the patch
+    const hadSchemaVersion = patchInfo._originalContent
+      ? patchInfo._originalContent.includes('schema_version')
+      : true; // default to checking if we don't have original content
+    if (hadSchemaVersion && !fileContent.includes('schema_version')) {
         throw new Error(`Safety invariant violation: schema_version was removed.`);
     }
 

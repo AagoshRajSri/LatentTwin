@@ -6,7 +6,7 @@ const MAX_JOBS = parseInt(process.env.MAX_CONCURRENT_JOBS ?? '3');
 export const jobQueue: InstanceType<typeof PQueue> = new PQueue({ concurrency: MAX_JOBS });
 
 export interface ProgressEvent {
-  type: 'stage' | 'done' | 'error';
+  type: 'stage' | 'done' | 'error' | 'job_error';
   stage?: string;
   pct?: number;
   jobId?: string;
@@ -53,7 +53,7 @@ export function finishJob(state: JobState, result: unknown): void {
 export function failJob(state: JobState, message: string): void {
   state.status = 'error';
   state.error = message;
-  state.emitter.emit('event', { type: 'error', message } satisfies ProgressEvent);
+  state.emitter.emit('event', { type: 'job_error', message } satisfies ProgressEvent);
   state.emitter.emit('close');
   scheduleCleanup(state);
 }

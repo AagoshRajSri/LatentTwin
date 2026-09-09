@@ -24,7 +24,7 @@ import { diagnoseBug } from "../pipeline/diagnoseBug.js";
 import { scanRepo, FULL_SCAN_CONCURRENCY } from "../pipeline/scanRepo.js";
 import { assembleResult } from "../pipeline/assembleResult.js";
 import { assembleFullScanResult } from "../pipeline/assembleFullScanResult.js";
-import { resolveRepo } from "../lib/githubClient.js";
+import { resolveRepo, fetchFileContent } from "../lib/githubClient.js";
 import { callSonnet } from "../lib/geminiClient.js";
 
 // Dedicated 1-slot queue for expensive fullScan jobs
@@ -286,6 +286,7 @@ export async function analyzeRoutes(fastify: FastifyInstance) {
           /\b(gh[a-z_]+[A-Za-z0-9_]+|sk-ant-[^\s]+)\b/g,
           "[REDACTED]",
         );
+        console.error("[analyze route] Job Failed:", err);
         failJob(state, safe);
       }
     });
@@ -335,7 +336,7 @@ export async function analyzeRoutes(fastify: FastifyInstance) {
         return;
       }
       if (state.status === "error") {
-        send("error", { message: state.error ?? "Unknown error" });
+        send("job_error", { message: state.error ?? "Unknown error" });
         reply.raw.end();
         return;
       }
@@ -356,8 +357,8 @@ export async function analyzeRoutes(fastify: FastifyInstance) {
           });
         } else if (event.type === "done") {
           send("done", { jobId });
-        } else if (event.type === "error") {
-          send("error", { message: event.message });
+        } else if (event.type === "job_error") {
+          send("job_error", { message: event.message });
         }
       };
 
@@ -399,7 +400,7 @@ export async function analyzeRoutes(fastify: FastifyInstance) {
     },
   );
 
-  // POST /ai-fix — generate an AI-powered fix for a specific buggy file
+  // POST /ai-fix — generate a structured AI-powered fix for a specific buggy file
   fastify.post("/ai-fix", async (req: FastifyRequest, reply: FastifyReply) => {
     const ip = req.ip || req.socket.remoteAddress || "unknown";
     if (!checkAiFixLimit(ip)) {
@@ -410,8 +411,12 @@ export async function analyzeRoutes(fastify: FastifyInstance) {
       });
     }
 
-    const { file, bugs } = req.body as {
+    const body = req.body as {
       file: string;
+      originalContent?: string;
+      repoUrl?: string;
+      branch?: string;
+      githubToken?: string;
       bugs: Array<{
         before?: string;
         after?: string;
@@ -419,36 +424,148 @@ export async function analyzeRoutes(fastify: FastifyInstance) {
         lineNumber?: number;
       }>;
     };
+    let { file, bugs, originalContent, repoUrl, branch, githubToken } = body;
+
     if (!file || !bugs || bugs.length === 0) {
       return reply.code(400).send({ error: "file and bugs are required" });
     }
+
+    // If originalContent is missing, try to fetch it
+    if (!originalContent && repoUrl) {
+      try {
+        const meta = await resolveRepo(repoUrl, branch, githubToken);
+        const content = await fetchFileContent(meta.owner, meta.name, file, meta.commitSha, githubToken);
+        if (content) originalContent = content;
+      } catch (err: any) {
+        console.warn("[ai-fix] Failed to fetch original content:", err.message);
+      }
+    }
+
     const bugDescriptions = bugs
       .map(
         (b, i) =>
-          `Bug ${i + 1} at line ${b.lineNumber ?? "?"}:\n  Before: ${b.before ?? "unknown"}\n  Hint: ${b.hint ?? "no hint"}`,
+          `Bug ${i + 1} at line ${b.lineNumber ?? "?"}:\n  Buggy line: ${b.before ?? "unknown"}\n  Suggested fix: ${b.after ?? "unknown"}\n  Hint: ${b.hint ?? "no hint"}`,
       )
       .join("\n\n");
 
-    const prompt = `You are an expert software engineer. The following bugs were detected in the file "${file}":
+    const systemPrompt = `You are an expert software engineer and code repair specialist.
+Your task is to produce a complete, production-ready fixed version of a source file.
+You MUST respond with a single valid JSON object only — no prose, no markdown fences.
+The JSON must exactly match this schema:
+{
+  "rootCause": "Plain English explanation of WHY the original code is wrong and what the real-world impact is",
+  "fixRationale": "Plain English explanation of WHY the proposed fix is correct and production-safe",
+  "fullFixedContent": "The complete fixed file content as a single string with \\n newlines",
+  "hunks": [
+    {
+      "lineNumber": 42,
+      "original": "the exact original line",
+      "fixed": "the corrected replacement line",
+      "explanation": "one-line explanation of this specific change"
+    }
+  ]
+}
+CRITICAL: fullFixedContent must be the entire file with ALL bugs fixed. Do not truncate it.`;
 
+    const fileSection = originalContent
+      ? `\n\nOriginal file content:\n\`\`\`\n${originalContent}\n\`\`\``
+      : "";
+
+    const prompt = `Fix all bugs in the file "${file}".
+
+Detected bugs:
 ${bugDescriptions}
+${fileSection}
 
-For each bug, provide:
-1. The exact corrected line(s) of code
-2. A brief explanation of why this fix resolves the issue
-3. Whether fixing this file alone resolves the repository issue, or if other files need changes
-
-Respond in a clear, structured format. Show the fixed code with proper context (2-3 lines before and after).`;
+Produce the complete fixed file content and a structured diff of exactly what changed.`;
 
     try {
-      const fix = await callSonnet(
-        prompt,
-        "You are an expert code repair assistant. Provide clear, concise, actionable fixes.",
-      );
-      return reply.send({ fix });
+      const raw = await callSonnet(prompt, systemPrompt);
+
+      // Attempt to parse structured JSON response
+      let structured: {
+        rootCause: string;
+        fixRationale: string;
+        fullFixedContent: string;
+        hunks: Array<{ lineNumber: number; original: string; fixed: string; explanation: string }>;
+      } | null = null;
+
+      try {
+        // Strip potential markdown fences
+        const cleaned = raw.replace(/^```(?:json)?\s*/im, "").replace(/\s*```\s*$/m, "").trim();
+        structured = JSON.parse(cleaned);
+      } catch {
+        // Fallback: return unstructured fix for backwards-compat
+        return reply.send({ fix: raw });
+      }
+
+      // Compute a simple line-level diff if fullFixedContent and originalContent are both available
+      let diffHunks: Array<{
+        lineNumber: number;
+        type: "removed" | "added" | "context";
+        content: string;
+        explanation?: string;
+      }> = [];
+
+      if (originalContent && structured?.fullFixedContent) {
+        const origLines = originalContent.split("\n");
+        const fixedLines = structured.fullFixedContent.split("\n");
+
+        const maxLines = Math.max(origLines.length, fixedLines.length);
+        let contextBefore: number[] = [];
+
+        for (let i = 0; i < maxLines; i++) {
+          const orig = origLines[i] ?? null;
+          const fixed = fixedLines[i] ?? null;
+
+          if (orig !== fixed) {
+            // Include up to 3 lines of context before this change
+            const ctxStart = Math.max(0, i - 3);
+            for (let c = ctxStart; c < i; c++) {
+              if (!contextBefore.includes(c) && origLines[c] === fixedLines[c]) {
+                diffHunks.push({ lineNumber: c + 1, type: "context", content: origLines[c] });
+                contextBefore.push(c);
+              }
+            }
+            if (orig !== null) diffHunks.push({ lineNumber: i + 1, type: "removed", content: orig });
+            if (fixed !== null) diffHunks.push({ lineNumber: i + 1, type: "added", content: fixed });
+          }
+        }
+      }
+
+      return reply.send({
+        fix: structured ? `${structured.rootCause}\n\n${structured.fixRationale}` : raw,
+        rootCause: structured?.rootCause ?? null,
+        fixRationale: structured?.fixRationale ?? null,
+        fullOriginalFile: originalContent ?? null,
+        fullFixedFile: structured?.fullFixedContent ?? null,
+        diffHunks: diffHunks.length > 0 ? diffHunks : null,
+        hunks: structured?.hunks ?? null,
+      });
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "AI fix failed";
       return reply.code(500).send({ error: "ai_fix_failed", message });
+    }
+  });
+
+  // POST /verify-fix — run Semgrep on a patched file to confirm zero findings
+  fastify.post("/verify-fix", async (req: FastifyRequest, reply: FastifyReply) => {
+    const { file, content } = req.body as { file: string; content: string };
+
+    if (!file || typeof content !== "string") {
+      return reply.code(400).send({ error: "file and content are required" });
+    }
+
+    const { runSemgrepOnContent } = await import("../pipeline/scanRepo.js");
+    try {
+      const results = await runSemgrepOnContent(file, content);
+      return reply.send({
+        clean: results.length === 0,
+        remainingIssues: results,
+      });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Verification failed";
+      return reply.code(500).send({ error: "verify_failed", message });
     }
   });
 }

@@ -27,7 +27,16 @@ function triggerDownload(blob, filename) {
  * repoUrl: string
  */
 function buildPayload(analysisSnapshot, repoUrl) {
-  const { nodes = [], edges = [], impacted = new Set() } = analysisSnapshot ?? {};
+  const { nodes = [], edges = [], impacted: explicitImpacted } = analysisSnapshot ?? {};
+
+  // Default the impacted set from node statuses when not explicitly provided
+  const impacted = explicitImpacted instanceof Set && explicitImpacted.size > 0
+    ? explicitImpacted
+    : new Set(
+        nodes
+          .filter(n => n.status === 'impacted' || n.status === 'affected-downstream')
+          .map(n => n.id),
+      );
 
   const impactedNodes = nodes.filter(n => n.status === 'impacted' || n.status === 'affected-downstream');
   const issueCount = nodes.reduce((acc, n) => acc + (n.lines?.filter(l => l.error).length ?? 0), 0);

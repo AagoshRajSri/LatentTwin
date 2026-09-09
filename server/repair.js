@@ -7,34 +7,57 @@ const path = require('path');
 function generateDiff(filePath, originalContent, oldProperty, newProperty) {
   // Simple diff generator for single property replacement
   const lines = originalContent.split('\n');
-  const diffLines = [];
   const normalizedPath = filePath.replace(/\\/g, '/');
-  diffLines.push(`--- a/${normalizedPath}`);
-  diffLines.push(`+++ b/${normalizedPath}`);
-  
-  let changeCount = 0;
+  const header = [`--- a/${normalizedPath}`, `+++ b/${normalizedPath}`];
+
+  // Escape special regex characters in oldProperty to avoid regex injection
+  const escapedOldProp = oldProperty.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const re = new RegExp(escapedOldProp, 'g');
+
+  // Collect changed line indices
+  const changedIndices = [];
   for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    if (line.includes(oldProperty)) {
-      // Find window of context
-      const start = Math.max(0, i - 2);
-      const end = Math.min(lines.length - 1, i + 2);
-      
-      diffLines.push(`@@ -${start + 1},${end - start + 1} +${start + 1},${end - start + 1} @@`);
-      
-      for (let j = start; j <= end; j++) {
-        if (j === i) {
-          diffLines.push(`-${lines[j]}`);
-          diffLines.push(`+${lines[j].replace(new RegExp(oldProperty, 'g'), newProperty)}`);
-          changeCount++;
-        } else {
-          diffLines.push(` ${lines[j]}`);
-        }
+    if (lines[i].includes(oldProperty)) changedIndices.push(i);
+  }
+  if (changedIndices.length === 0) return null;
+
+  // Merge indices into non-overlapping windows (context = 2 lines either side)
+  const CONTEXT = 2;
+  const hunks = [];
+  let hunkStart = Math.max(0, changedIndices[0] - CONTEXT);
+  let hunkEnd = Math.min(lines.length - 1, changedIndices[0] + CONTEXT);
+  let hunkChanges = [changedIndices[0]];
+
+  for (let k = 1; k < changedIndices.length; k++) {
+    const windowStart = Math.max(0, changedIndices[k] - CONTEXT);
+    if (windowStart <= hunkEnd + 1) {
+      // Windows overlap — extend the current hunk
+      hunkEnd = Math.min(lines.length - 1, changedIndices[k] + CONTEXT);
+      hunkChanges.push(changedIndices[k]);
+    } else {
+      hunks.push({ start: hunkStart, end: hunkEnd, changes: hunkChanges });
+      hunkStart = windowStart;
+      hunkEnd = Math.min(lines.length - 1, changedIndices[k] + CONTEXT);
+      hunkChanges = [changedIndices[k]];
+    }
+  }
+  hunks.push({ start: hunkStart, end: hunkEnd, changes: hunkChanges });
+
+  const diffLines = [...header];
+  for (const hunk of hunks) {
+    const count = hunk.end - hunk.start + 1;
+    diffLines.push(`@@ -${hunk.start + 1},${count} +${hunk.start + 1},${count} @@`);
+    const changeSet = new Set(hunk.changes);
+    for (let j = hunk.start; j <= hunk.end; j++) {
+      if (changeSet.has(j)) {
+        diffLines.push(`-${lines[j]}`);
+        diffLines.push(`+${lines[j].replace(re, newProperty)}`);
+      } else {
+        diffLines.push(` ${lines[j]}`);
       }
     }
   }
-  
-  if (changeCount === 0) return null;
+
   return diffLines.join('\n');
 }
 

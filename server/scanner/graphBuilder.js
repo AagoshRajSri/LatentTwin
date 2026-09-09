@@ -65,7 +65,8 @@ class GraphBuilder {
     const dirs = new Set();
     for (const file of scannedFiles) {
       if (path.basename(file.path) !== 'package.json') {
-        dirs.add(path.dirname(file.path).split(path.sep)[0]);
+        // Normalize to POSIX separators before splitting on Windows
+        dirs.add(file.path.replace(/\\/g, '/').split('/')[0]);
       }
     }
     
@@ -90,7 +91,8 @@ class GraphBuilder {
     for (const file of scannedFiles) {
       if (path.basename(file.path) === 'package.json') continue;
       
-      const sourceDir = path.dirname(file.path).split(path.sep)[0];
+      // Normalize to POSIX separators before splitting on Windows
+      const sourceDir = file.path.replace(/\\/g, '/').split('/')[0];
       const sourceServiceId = services.get(sourceDir) || sourceDir;
       
       // Process explicit dependencies (simplified for the demo context)

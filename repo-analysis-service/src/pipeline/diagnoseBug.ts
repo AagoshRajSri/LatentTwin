@@ -7,6 +7,7 @@ import {
   DiagnosedLineSchema,
   type DiagnosedLine,
 } from "../schemas/analyzeRequest.js";
+import { cleanAndParseJson } from "../lib/jsonHelper.js";
 
 export interface BugLocation {
   file: string;
@@ -103,7 +104,7 @@ Format: [{"file": "path/to/file.ts", "lineNumber": 14}]`;
     const raw = await callSonnet(prompt);
     console.log("descriptionToFiles raw:", raw);
     const parsed: Array<{ file: string; lineNumber?: number }> =
-      JSON.parse(raw);
+      cleanAndParseJson(raw, []);
     return parsed.map((p) => ({ file: p.file, lineNumber: p.lineNumber }));
   } catch (err) {
     console.error("Error in descriptionToFiles:", err);
@@ -142,7 +143,7 @@ Identify the specific broken lines in this file and produce a repair for each.`;
         STRUCTURED_SYSTEM,
       );
       console.log("diagnoseFile raw attempt", attempt, ":", raw);
-      const parsed: unknown = JSON.parse(raw);
+      const parsed: unknown = cleanAndParseJson(raw, null);
       if (Array.isArray(parsed)) {
         return parsed.flatMap((line, i) => {
           const checked = DiagnosedLineSchema.safeParse({

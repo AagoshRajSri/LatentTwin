@@ -12,14 +12,19 @@
  */
 
 import path from "node:path";
+import fs from "node:fs";
+import os from "node:os";
+import util from "node:util";
+import { exec } from "node:child_process";
 import PQueue from "p-queue";
-import { callGemini, callSonnet, FLASH_MODEL } from "../lib/geminiClient.js";
+import { callSonnet } from "../lib/geminiClient.js";
 import type { FetchedFile } from "./fetchRepo.js";
 import type { FileGraph } from "./buildGraph.js";
 import {
   DiagnosedLineSchema,
   type DiagnosedLine,
 } from "../schemas/analyzeRequest.js";
+import { cleanAndParseJson } from "../lib/jsonHelper.js";
 
 // ────────────────────────────────────────────────────────────
 // Types
@@ -145,78 +150,118 @@ function batchFiles(files: FetchedFile[]): FetchedFile[][] {
 }
 
 // ────────────────────────────────────────────────────────────
-// Stage 1: Gemini broad sweep
+// Stage 1: Semgrep broad sweep
 // ────────────────────────────────────────────────────────────
 
-const SWEEP_SYSTEM = `You are a strict, expert static analysis engine inspecting code for functional, architectural, and React bugs.
-Respond with a JSON array ONLY — no prose, no markdown fences, no explanations.
-Each item in the array must be:
-{"file": string, "lineHint": number|null, "reason": string, "confidence": number}
+const execPromise = util.promisify(exec);
 
-- "file": exact path as it appears in the code listing header (e.g. "src/App.jsx")
-- "lineHint": line number of the bug, or null if unknown
-- "reason": concise explanation of the bug (e.g., "missing useEffect dependency array causing infinite re-renders", "direct state mutation using push()", "Math.random() used for React key or ID generation", "deprecated defaultProps on function component")
-- "confidence": number between 0.7 and 1.0
+async function runSemgrep(files: FetchedFile[]): Promise<ScanCandidate[]> {
+  const tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), "semgrep-"));
+  try {
+    // 1. Write files to disk asynchronously with concurrency limit
+    const writeQueue = new PQueue({ concurrency: 100 });
+    await Promise.all(
+      files.map((f) => {
+        if (!isScannableFile(f)) return Promise.resolve();
+        return writeQueue.add(async () => {
+          const dest = path.join(tmpDir, f.path);
+          await fs.promises.mkdir(path.dirname(dest), { recursive: true });
+          await fs.promises.writeFile(dest, f.content);
+        });
+      })
+    );
 
-CRITICAL RULES:
-1. Scan EVERY file completely and report ALL suspected bugs. If multiple files have bugs, report all of them. Err on the side of reporting more bugs rather than missing them.
-2. React Hooks: Look for missing dependency arrays in useEffect, useCallback, and useMemo. Also look for state mutations inside hooks.
-3. Immutability: Look for direct mutations of React state and objects (e.g. using .push(), .splice(), .pop(), or direct property assignment instead of setter functions or spread operator).
-4. Deprecated APIs: Look for React 19 deprecations, including defaultProps on function components.
-5. Unique Keys: Look for non-unique React keys or unsafe ID generation. CRITICAL: If you see Math.random() anywhere being used for keys, IDs, or unique identifiers, report it as a high-confidence bug (0.95+).
-6. General Anti-Patterns: Look for index-based keys in lists, missing null checks, unhandled promises, async operations without await, infinite loops, and state that should be refs.`;
+    // 2. Run semgrep outputting to a JSON file instead of stdout
+    const resultsFile = path.join(tmpDir, "semgrep-results.json");
+    let semgrepCmd = `python -m semgrep scan --json -o "${resultsFile}" --config p/default .`;
+    if (process.platform === "win32") {
+        semgrepCmd = `C:\\Users\\aagos\\AppData\\Local\\Python\\pythoncore-3.14-64\\Scripts\\semgrep.exe scan --json -o "${resultsFile}" --config p/default .`;
+    }
 
-async function sweepBatch(batch: FetchedFile[]): Promise<ScanCandidate[]> {
-  const fileDumps = batch
-    .map((f) => `// FILE: ${f.path}\n${f.content}`)
-    .join("\n\n// ─────────────────────────────────\n\n");
-
-  const prompt = `Scan these ${batch.length} source files for real bugs:\n\n${fileDumps}\n\nReturn a JSON array of bugs found.`;
-
-  for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      const raw = await callGemini(
-        attempt === 0
-          ? prompt
-          : `${prompt}\n\n(Previous attempt produced invalid JSON. Return ONLY a valid JSON array.)`,
-        SWEEP_SYSTEM,
-        FLASH_MODEL,
-      );
-      const parsed = JSON.parse(raw);
-      if (!Array.isArray(parsed)) {
-        console.warn(
-          `[sweepBatch] Gemini returned non-array on attempt ${attempt + 1}:`,
-          raw.slice(0, 200),
-        );
-        continue;
-      }
-      const hits = (parsed as any[])
-        .filter(
-          (c) => typeof c.file === "string" && typeof c.reason === "string",
-        )
-        .map((c) => ({
-          file: c.file as string,
-          lineHint: typeof c.lineHint === "number" ? c.lineHint : undefined,
-          reason: c.reason as string,
-          confidence: typeof c.confidence === "number" ? c.confidence : 0.5,
-        }));
-      console.log(
-        `[sweepBatch] Attempt ${attempt + 1}: Gemini returned ${hits.length} candidates`,
-      );
-      return hits;
-    } catch (err) {
-      console.error(
-        `[sweepBatch] Attempt ${attempt + 1} failed:`,
-        err instanceof Error ? err.message : err,
-      );
-      if (attempt === 1) {
-        console.error(
-          "[sweepBatch] Both attempts failed — returning empty for this batch.",
-        );
+      console.log(`[runSemgrep] Executing semgrep in ${tmpDir}...`);
+      await execPromise(semgrepCmd, { cwd: tmpDir });
+    } catch (err: any) {
+      // Semgrep exits with code 1 if it finds findings (bugs)
+      if (err.code !== 1) {
+        console.error("[runSemgrep] Failed to run semgrep:", err.message);
+        return [];
       }
     }
+
+    // 3. Read and parse JSON from the output file
+    let parsed: any = { results: [] };
+    try {
+      const resultsRaw = await fs.promises.readFile(resultsFile, "utf8");
+      parsed = JSON.parse(resultsRaw);
+    } catch (e: any) {
+      console.warn("[runSemgrep] Could not read or parse results file:", e.message);
+    }
+
+    const results = parsed.results || [];
+    console.log(`[runSemgrep] Semgrep found ${results.length} issues.`);
+
+    return results.map((res: any) => ({
+      file: res.path.replace(/\\/g, "/"), // Normalize windows paths from Semgrep
+      lineHint: res.start?.line,
+      reason: `Semgrep rule [${res.check_id}]: ${res.extra?.message}`,
+      confidence: 0.99, // Deterministic static analysis is always high confidence
+    }));
+  } catch (e: any) {
+     console.error("[runSemgrep] Unexpected error:", e.message);
+     return [];
+  } finally {
+    await fs.promises.rm(tmpDir, { recursive: true, force: true }).catch(err => {
+      console.error("[runSemgrep] Failed to cleanup tmpDir:", err.message);
+    });
   }
-  return [];
+}
+
+/**
+ * Run Semgrep on a single file's content (for /verify-fix endpoint).
+ * Returns an array of findings — empty means the fix is clean.
+ */
+export async function runSemgrepOnContent(
+  filePath: string,
+  content: string,
+): Promise<ScanCandidate[]> {
+  const tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), "semgrep-verify-"));
+  try {
+    const dest = path.join(tmpDir, path.basename(filePath));
+    await fs.promises.writeFile(dest, content, "utf8");
+
+    const resultsFile = path.join(tmpDir, "verify-results.json");
+    let semgrepCmd = `python -m semgrep scan --json -o "${resultsFile}" --config p/default "${dest}"`;
+    if (process.platform === "win32") {
+      semgrepCmd = `C:\\Users\\aagos\\AppData\\Local\\Python\\pythoncore-3.14-64\\Scripts\\semgrep.exe scan --json -o "${resultsFile}" --config p/default "${dest}"`;
+    }
+
+    try {
+      await execPromise(semgrepCmd, { cwd: tmpDir });
+    } catch (err: any) {
+      if (err.code !== 1) {
+        console.warn("[runSemgrepOnContent] Semgrep failed:", err.message);
+        return [];
+      }
+    }
+
+    let parsed: any = { results: [] };
+    try {
+      const raw = await fs.promises.readFile(resultsFile, "utf8");
+      parsed = JSON.parse(raw);
+    } catch {
+      return [];
+    }
+
+    return (parsed.results || []).map((res: any) => ({
+      file: filePath,
+      lineHint: res.start?.line,
+      reason: `Semgrep rule [${res.check_id}]: ${res.extra?.message}`,
+      confidence: 0.99,
+    }));
+  } finally {
+    await fs.promises.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+  }
 }
 
 // ────────────────────────────────────────────────────────────
@@ -259,7 +304,7 @@ Return [] only if the file is genuinely clean.`;
           : `${prompt}\n\n(Return ONLY a valid JSON array, nothing else.)`,
         PRECISE_SYSTEM,
       );
-      const parsed: any[] = JSON.parse(raw);
+      const parsed: any[] = cleanAndParseJson<any[]>(raw, []);
       if (!Array.isArray(parsed) || parsed.length === 0) {
         console.log(
           `[diagnoseCandidate] ${file}: Gemini returned empty/non-array — treating as clean`,
@@ -383,28 +428,13 @@ export async function scanRepo(
 
   const fileMap = new Map(files.map((f) => [f.path, f.content]));
 
-  // ── Stage 1: batch sweep ──────────────────────────────────
-  const batches = batchFiles(files);
+  // ── Stage 1: Semgrep sweep ──────────────────────────────────
   console.log(
-    `[scanRepo] Stage 1: ${files.length} total files, ${batches.length} batches to sweep`,
+    `[scanRepo] Stage 1: ${files.length} total files. Running Semgrep...`,
   );
-  const allCandidates: ScanCandidate[] = [];
-
-  // Run batches sequentially to respect cost/rate limits
-  for (let bi = 0; bi < batches.length; bi++) {
-    const batch = batches[bi];
-    console.log(
-      `[scanRepo] Sweeping batch ${bi + 1}/${batches.length} (${batch.length} files)`,
-    );
-    const found = await sweepBatch(batch);
-    console.log(
-      `[scanRepo] Batch ${bi + 1} found ${found.length} candidates:`,
-      found.map((c) => `${c.file} (${c.confidence})`),
-    );
-    allCandidates.push(...found);
-  }
-
-  console.log(`[scanRepo] Total raw candidates: ${allCandidates.length}`);
+  
+  const allCandidates: ScanCandidate[] = await runSemgrep(files);
+  console.log(`[scanRepo] Total raw candidates from Semgrep: ${allCandidates.length}`);
 
   // Fallback: if AI found nothing, run simple heuristic scan
   if (allCandidates.length === 0) {

@@ -135,7 +135,8 @@ function resolveRelativeImport(
   importPath: string,
   fileSet: Set<string>
 ): string | null {
-  const dir = path.dirname(fromFile);
+  // Normalize to POSIX separators — on Windows, path.dirname returns backslashes
+  const dir = fromFile.replace(/\\/g, '/').split('/').slice(0, -1).join('/');
   // Try common extensions
   const candidates = [
     importPath,
@@ -148,7 +149,16 @@ function resolveRelativeImport(
   ];
 
   for (const candidate of candidates) {
-    const resolved = path.posix.normalize(`${dir}/${candidate}`);
+    // Resolve relative to source dir using posix logic, then normalize
+    const joined = dir ? `${dir}/${candidate}` : candidate;
+    const resolved = joined
+      .split('/')
+      .reduce<string[]>((acc, part) => {
+        if (part === '..') acc.pop();
+        else if (part !== '.') acc.push(part);
+        return acc;
+      }, [])
+      .join('/');
     if (fileSet.has(resolved)) return resolved;
   }
   return null;

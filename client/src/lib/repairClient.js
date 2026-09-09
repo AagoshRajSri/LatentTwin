@@ -1,6 +1,7 @@
 const getApiUrl = (endpoint) => {
-  const base = import.meta.env.VITE_API_URL || 'http://localhost:5000';
-  return `${base.replace(/\/$/, '')}/${endpoint.replace(/^\//, '')}`;
+  const base = import.meta.env.VITE_API_URL || '';
+  const cleanEndpoint = endpoint.replace(/^\//, '');
+  return base ? `${base.replace(/\/$/, '')}/${cleanEndpoint}` : `/${cleanEndpoint}`;
 };
 
 async function readResponse(response, fallback) {

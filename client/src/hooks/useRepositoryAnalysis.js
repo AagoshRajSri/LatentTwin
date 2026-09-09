@@ -32,6 +32,7 @@ export function useRepositoryAnalysis({ repoUrl, onStage, onResult, onError, onS
       const recoverResult = async () => {
         if (settled || reconnecting) return;
         reconnecting = true;
+        source.close(); // Close immediately to prevent spurious 'error' events on server disconnect
         onStage?.({ stage: 'Reconnecting to analysis...', pct: 90 });
         for (let attempt = 0; attempt < 6 && !settled; attempt += 1) {
           try {
@@ -53,10 +54,15 @@ export function useRepositoryAnalysis({ repoUrl, onStage, onResult, onError, onS
         catch { finish(() => onError?.(new Error('Malformed analysis progress event'))); }
       });
       source.addEventListener('done', recoverResult);
-      source.addEventListener('error', (event) => {
+      source.addEventListener('job_error', (event) => {
         let message = 'Analysis service reported an error';
-        try { message = JSON.parse(event.data).message || message; } catch { /* connection error */ }
+        try { message = JSON.parse(event.data).message || message; } catch { /* malformed payload */ }
         finish(() => onError?.(new Error(message)));
+      });
+      source.addEventListener('error', (event) => {
+        if (settled || reconnecting) return; // Ignore errors if we are already recovering result
+        // Fallback for network drops when no job_error was explicitly sent
+        finish(() => onError?.(new Error('Analysis service connection lost')));
       });
       source.onerror = recoverResult;
       cancelRef.current = () => finish();

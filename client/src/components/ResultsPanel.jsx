@@ -11,7 +11,8 @@ import RepairFlow from './RepairFlow.jsx';
 
 export const ResultsPanel = () => {
   const { analysis } = useAppContext();
-  const [exportFormat, setExportFormat] = useState<'json' | 'markdown'>('json');
+  const [exportFormat, setExportFormat] = useState('json');
+  const repoUrl = analysis.repoUrl || '';
 
   if (!analysis.graphData) {
     return null;
@@ -27,9 +28,9 @@ export const ResultsPanel = () => {
 
   const handleExport = () => {
     if (exportFormat === 'json') {
-      exportJSON(analysis.graphData, `analysis-${Date.now()}.json`);
+      exportJSON(analysis.graphData, repoUrl);
     } else {
-      exportMarkdown(analysis.graphData, `analysis-${Date.now()}.md`);
+      exportMarkdown(analysis.graphData, repoUrl);
     }
   };
 
